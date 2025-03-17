@@ -1,0 +1,608 @@
+/* 额外的样式可以在这里添加 */
+.footer {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e5e5;
+    color: #777;
+    text-align: center;
+}
+
+.loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-top-color: #007bff;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+body {
+    padding-top: 20px;
+    padding-bottom: 20px;
+}
+
+.header {
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e5e5e5;
+    margin-bottom: 30px;
+}
+
+.key-item {
+    margin-bottom: 10px;
+    padding: 10px;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.key-balance {
+    font-weight: bold;
+    transition: transform 0.3s ease;
+}
+
+.key-actions {
+    text-align: right;
+}
+
+.stats-card {
+    margin-bottom: 20px;
+}
+
+.nav-tabs {
+    margin-bottom: 15px;
+}
+
+#batch-keys {
+    min-height: 100px;
+}
+
+.spinner-border {
+    width: 1rem;
+    height: 1rem;
+    margin-right: 0.5rem;
+}
+
+.check-balance-btn {
+    margin-top: 0.5rem;
+}
+
+.balance-result {
+    margin-top: 0.5rem;
+    font-weight: bold;
+    display: none;
+}
+
+.pagination {
+    margin-top: 20px;
+    justify-content: center;
+}
+
+.balance-high {
+    background-color: rgba(40, 167, 69, 0.2);
+}
+
+.balance-medium {
+    background-color: rgba(255, 193, 7, 0.2);
+}
+
+.balance-low {
+    background-color: rgba(220, 53, 69, 0.2);
+}
+
+.key-select {
+    margin-right: 10px;
+}
+
+.key-mode-controls {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+}
+
+.key-mode-title {
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.key-mode-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.refresh-spinner {
+    display: none;
+    margin-right: 5px;
+    width: 1rem;
+    height: 1rem;
+}
+
+.key-item.selected {
+    box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+}
+
+.proxy-url {
+    display: none;
+    margin-top: 5px;
+    font-size: 0.9rem;
+    word-break: break-all;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.proxy-url.show {
+    opacity: 1;
+}
+
+.copy-btn {
+    margin-left: 5px;
+    cursor: pointer;
+    color: #007bff;
+}
+
+.copy-btn:hover {
+    color: #0056b3;
+}
+
+.saved-keys-container {
+    margin-bottom: 15px;
+}
+
+.saved-key-item {
+    display: inline-block;
+    margin: 5px;
+    padding: 5px 10px;
+    background-color: #e9ecef;
+    border-radius: 15px;
+    cursor: pointer;
+}
+
+.saved-key-item:hover {
+    background-color: #dee2e6;
+}
+
+.clear-saved-keys {
+    margin-left: 10px;
+    color: #dc3545;
+    cursor: pointer;
+}
+
+.key-info-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.3s ease;
+    flex-wrap: nowrap;
+    width: 100%;
+}
+
+.key-name {
+    display: flex;
+    align-items: center;
+    min-width: 140px;
+    max-width: 150px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.key-balance-container {
+    transition: all 0.3s ease;
+    /* margin-left: 10px; */
+    white-space: nowrap;
+    /* min-width: 100px; */
+}
+
+.key-stats {
+    display: flex;
+    gap: 10px;
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin: 0 10px;
+    flex-grow: 1;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.key-actions-container {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+    .key-info-row {
+        flex-wrap: wrap;
+    }
+
+    .key-actions-container {
+        margin-top: 10px;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .key-name {
+        width: 100%;
+    }
+}
+
+.copy-api-btn,
+.check-api-btn,
+.delete-api-btn {
+    padding: 1px 8px;
+    font-size: 0.85rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    color: white;
+    margin-right: 5px;
+}
+
+.copy-api-btn {
+    background-color: #007bff;
+}
+
+.copy-api-btn:hover {
+    background-color: #0056b3;
+}
+
+.check-api-btn {
+    background-color: #28a745;
+}
+
+.check-api-btn:hover {
+    background-color: #218838;
+}
+
+.delete-api-btn {
+    background-color: #dc3545;
+    margin-right: 0;
+}
+
+.delete-api-btn:hover {
+    background-color: #c82333;
+}
+
+.enable-api-btn {
+    background-color: #17a2b8;
+    padding: 2px 8px;
+    font-size: 0.85rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    color: white;
+    margin-right: 5px;
+}
+
+.enable-api-btn:hover {
+    background-color: #138496;
+}
+
+.key-disabled {
+    opacity: 0.7;
+    background-color: #f1f1f1;
+    border-left: 4px solid #dc3545;
+}
+
+.key-stat {
+    white-space: nowrap;
+}
+
+.rpm-stat,
+.tpm-stat {
+    color: #6f42c1;
+    font-weight: 500;
+}
+
+/* 添加得分样式 */
+.key-score {
+    color: #f0c14b; /* 浅黄色 */
+    font-weight: 500;
+}
+
+.badge {
+    margin-left: 5px;
+    font-size: 0.75rem;
+}
+
+.api-buttons-container {
+    display: flex;
+    align-items: center;
+}
+
+.form-check.form-switch {
+    margin-bottom: 0;
+    margin-right: 10px;
+}
+
+.form-check-input.toggle-key-status {
+    cursor: pointer;
+    width: 2.5em;
+}
+
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+}
+
+.toast {
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    margin-bottom: 10px;
+    max-width: 350px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.toast.show {
+    opacity: 1;
+}
+
+.toast-header {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background-color: rgba(0, 0, 0, 0.03);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.toast-body {
+    padding: 0.75rem;
+}
+
+.toast-success {
+    border-left: 4px solid #28a745;
+}
+
+.toast-error {
+    border-left: 4px solid #dc3545;
+}
+
+.toast-info {
+    border-left: 4px solid #17a2b8;
+}
+
+/* 添加日志查看器样式 */
+.log-viewer {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    overflow: auto;
+}
+
+.log-content {
+    background-color: #000;
+    color: #00ff00;
+    font-family: monospace;
+    padding: 20px;
+    margin: 50px auto;
+    width: 90%;
+    max-width: 1200px;
+    height: 80%;
+    overflow: auto;
+    border-radius: 5px;
+    white-space: pre-wrap;
+}
+
+.log-close {
+    position: absolute;
+    top: 20px;
+    right: 30px;
+    color: white;
+    font-size: 30px;
+    cursor: pointer;
+}
+
+.current-key-info {
+    margin-top: 15px;
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    border-left: 4px solid #007bff;
+    transition: border-color 0.3s ease;
+}
+
+.current-key-info.mode-single {
+    border-left-color: #007bff;
+}
+
+.current-key-info.mode-selected {
+    border-left-color: #ffc107;
+}
+
+.current-key-info.mode-all {
+    border-left-color: #28a745;
+}
+
+/* API地址显示和复制按钮样式 */
+.api-endpoints {
+    margin-top: 15px;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    border-left: 4px solid #17a2b8;
+}
+
+.api-endpoint-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 8px;
+    background-color: #fff;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+}
+
+.api-endpoint-url {
+    flex-grow: 1;
+    font-family: monospace;
+    word-break: break-all;
+}
+
+.copy-endpoint-btn {
+    margin-left: 10px;
+    padding: 2px 8px;
+    font-size: 0.85rem;
+    background-color: #17a2b8;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.copy-endpoint-btn:hover {
+    background-color: #138496;
+}
+
+.test-endpoint-btn {
+    margin-left: 5px;
+    padding: 2px 8px;
+    font-size: 0.85rem;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.test-endpoint-btn:hover {
+    background-color: #218838;
+}
+
+.saved-keys-actions {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.saved-keys-actions .btn {
+    font-size: 0.85rem;
+}
+
+/* 添加新的请求速率监控卡片样式 */
+.card-footer {
+    background-color: #f8f9fa;
+    border-top: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+.card-footer .fw-bold {
+    font-size: 1.2rem;
+    color: #6f42c1;
+}
+
+/* 添加折叠面板样式 */
+.accordion-button {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    background-color: #f8f9fa;
+}
+
+.accordion-button:not(.collapsed) {
+    background-color: #e7f1ff;
+    color: #0d6efd;
+}
+
+.accordion-body {
+    padding: 0.5rem;
+    background-color: #fff;
+}
+
+.api-endpoint-item {
+    margin-bottom: 0;
+    border: none;
+}
+
+.accordion-item {
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+.accordion-button:focus {
+    box-shadow: none;
+    border-color: rgba(0, 0, 0, 0.125);
+}
+
+.accordion-button::after {
+    width: 1rem;
+    height: 1rem;
+    background-size: 1rem;
+}
+
+.key-mode-tip {
+    margin-top: 8px;
+    font-style: italic;
+}
+
+.key-mode-tip small {
+    color: #6c757d;
+    font-size: 0.85rem;
+}
+
+.key-mode-tip small::before {
+    content: "💡 ";
+}
+
+/* 排序按钮样式 */
+.sort-controls {
+    margin-top: 1rem;
+}
+
+.sort-btn {
+    position: relative;
+    padding-right: 1.5rem !important;
+}
+
+.sort-btn i {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    transition: transform 0.2s ease;
+}
+
+.sort-btn.active {
+    background-color: #6c757d;
+    color: white;
+}
+
+.sort-btn.asc i {
+    transform: translateY(-50%) rotate(180deg);
+}
+
+/* 选中的API密钥样式 */
+.selected-key {
+    background-color: #e7f3ff;
+    border-left: 3px solid #0d6efd;
+}
+
+.form-check-input:focus {
+    border-color: #86b7fe;
+    outline: 0;
+    box-shadow: 0 0 0 .1rem rgba(13, 110, 253, .25);
+}

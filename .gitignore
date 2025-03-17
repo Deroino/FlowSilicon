@@ -1,0 +1,11 @@
+# IDE相关文件
+.idea/
+
+# 编译输出
+/dist/
+/build/
+/logs/
+
+# Go特定的忽略项
+*.exe
+*.test

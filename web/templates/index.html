@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .title }}</title>
+    <link rel="icon" href="/static-fs/favicon_32.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="/static-fs/favicon_32.ico" type="image/x-icon">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static-fs/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- 定义全局变量 -->
+    <script>
+        // 全局变量
+        const MAX_BALANCE = {{ .max_balance_display }}; // 最大余额值
+        const ITEMS_PER_PAGE = {{ .items_per_page }}; // 每页显示的密钥数量
+        const AUTO_UPDATE_INTERVAL = {{ .auto_update_interval }}; // 自动更新间隔（秒）
+        const STATS_REFRESH_INTERVAL = {{ .stats_refresh_interval }} ; // 统计信息刷新间隔（秒）
+        const RATE_REFRESH_INTERVAL = {{ .rate_refresh_interval }} ; // 速率监控刷新间隔（秒）
+    </script>
+    <script src="/static-fs/script.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ .title }}</h1>
+        </div>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card stats-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5>统计信息</h5>
+                        <span class="small text-muted" id="stats-last-update">自动刷新中...</span>
+                    </div>
+                    <div class="card-body" id="stats-container">
+                        <p>加载中...</p>
+                    </div>
+                    <!-- 添加缩小版的请求速率监控 -->
+                    <div class="card-footer p-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small fw-bold">速率监控</span>
+                            <span class="small text-muted" id="dashboard-last-update">上次更新: 刚刚</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <div class="text-center px-2">
+                                <div class="small text-muted">每分钟请求数</div>
+                                <div class="fw-bold" id="rpm-value">0</div>
+                                <div class="small text-muted">RPM</div>
+                            </div>
+                            <div class="text-center px-2">
+                                <div class="small text-muted">每分钟令牌数</div>
+                                <div class="fw-bold" id="tpm-value">0</div>
+                                <div class="small text-muted">TPM</div>
+                            </div>
+                            <div class="text-center px-2">
+                                <div class="small text-muted">每日请求数</div>
+                                <div class="fw-bold" id="rpd-value">0</div>
+                                <div class="small text-muted">RPD</div>
+                            </div>
+                            <div class="text-center px-2">
+                                <div class="small text-muted">每日令牌数</div>
+                                <div class="fw-bold" id="tpd-value">0</div>
+                                <div class="small text-muted">TPD</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5>添加 API 密钥</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul class="nav nav-tabs" id="myTab" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="add-tab" data-bs-toggle="tab" data-bs-target="#add" type="button" role="tab" aria-controls="add" aria-selected="true">添加单个</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="batch-add-tab" data-bs-toggle="tab" data-bs-target="#batch-add" type="button" role="tab" aria-controls="batch-add" aria-selected="false">批量添加</button>
+                            </li>
+                        </ul>
+                        <div class="tab-content" id="myTabContent">
+                            <div class="tab-pane fade show active" id="add" role="tabpanel" aria-labelledby="add-tab">
+                                <form id="add-key-form" class="mt-3">
+                                    <div class="mb-3">
+                                        <label for="key" class="form-label">API 密钥</label>
+                                        <input type="text" class="form-control" id="key" required>
+                                        <button type="button" id="check-balance-btn" class="btn btn-sm btn-outline-secondary check-balance-btn">检查余额</button>
+                                        <div id="balance-result" class="balance-result"></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="balance" class="form-label">初始余额</label>
+                                        <input type="number" class="form-control" id="balance" value="0" step="0.01">
+                                        <small class="form-text text-muted">如果设置为 0，系统将自动检查余额</small>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">添加</button>
+                                </form>
+                            </div>
+                            <div class="tab-pane fade" id="batch-add" role="tabpanel" aria-labelledby="batch-add-tab">
+                                <form id="batch-add-form">
+                                    <div class="mb-3">
+                                        <label for="batch-keys" class="form-label">API 密钥（每行一个或用逗号分隔）</label>
+                                        <textarea class="form-control" id="batch-keys" rows="5" required></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="batch-balance" class="form-label">余额</label>
+                                        <input type="number" class="form-control" id="batch-balance" value="0" step="0.01" min="0" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">批量添加</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <!-- 移除独立的仪表盘 -->
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5>API 密钥列表</h5>
+                        <div>
+                            <!-- 删除百分比显示余额的复选框 -->
+                            <button id="refresh-keys" class="btn btn-sm btn-outline-secondary">
+                                <span id="refresh-spinner" class="spinner-border refresh-spinner" role="status" aria-hidden="true"></span>
+                                刷新余额
+                            </button>
+                            <button id="view-logs" class="btn btn-sm btn-outline-info ms-2">
+                                查看日志
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="key-mode-controls">
+                            <div class="key-mode-title">API 密钥使用模式：</div>
+                            <div class="key-mode-buttons">
+                                <button id="use-single-key" class="btn btn-sm btn-outline-primary">单独使用选中密钥</button>
+                                <button id="use-all-keys" class="btn btn-sm btn-outline-success">轮询所有密钥</button>
+                                <button id="use-selected-keys" class="btn btn-sm btn-outline-warning">轮询选中密钥</button>
+                            </div>
+                            <div class="key-mode-tip mt-2">
+                                <small class="text-muted">提示：可以直接选择多个密钥，轮询选中模式需要至少选择两个密钥</small>
+                            </div>
+                        </div>
+                        
+                        <!-- 添加当前使用的API密钥信息 -->
+                        <div id="current-key-info" class="current-key-info">
+                            <h6>当前使用的API密钥: </h6>
+                            <div id="current-key-content">加载中...</div>
+                        </div>
+
+                        <!-- 添加API地址显示和复制按钮 -->
+                        <div class="api-endpoints">
+                            <h6 style="display: flex; justify-content: space-between; align-items: center;">
+                                API 接口地址：
+                                <button id="test-all-endpoints" class="btn btn-sm btn-primary">一键检测</button>
+                            </h6>
+
+                            <!-- 对话相关API -->
+                            <div class="accordion mb-2" id="chatAccordion">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#chatCollapse">
+                                            对话相关 API
+                                        </button>
+                                    </h2>
+                                    <div id="chatCollapse" class="accordion-collapse collapse show" data-bs-parent="#chatAccordion">
+                                        <div class="accordion-body">
+                                            <div class="api-endpoint-item">
+                                                <div class="api-endpoint-url" id="chat-completions-url"></div>
+                                                <button class="copy-endpoint-btn" data-endpoint="chat-completions">复制</button>
+                                                <button class="test-endpoint-btn" data-endpoint="chat">测试</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 嵌入相关API -->
+                            <div class="accordion mb-2" id="embeddingsAccordion">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#embeddingsCollapse">
+                                            嵌入相关 API
+                                        </button>
+                                    </h2>
+                                    <div id="embeddingsCollapse" class="accordion-collapse collapse" data-bs-parent="#embeddingsAccordion">
+                                        <div class="accordion-body">
+                                            <div class="api-endpoint-item">
+                                                <div class="api-endpoint-url" id="embeddings-url"></div>
+                                                <button class="copy-endpoint-btn" data-endpoint="embeddings">复制</button>
+                                                <button class="test-endpoint-btn" data-endpoint="embeddings">测试</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 排序相关API -->
+                            <div class="accordion mb-2" id="rerankAccordion">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#rerankCollapse">
+                                            排序相关 API
+                                        </button>
+                                    </h2>
+                                    <div id="rerankCollapse" class="accordion-collapse collapse" data-bs-parent="#rerankAccordion">
+                                        <div class="accordion-body">
+                                            <div class="api-endpoint-item">
+                                                <div class="api-endpoint-url" id="rerank-url"></div>
+                                                <button class="copy-endpoint-btn" data-endpoint="rerank">复制</button>
+                                                <button class="test-endpoint-btn" data-endpoint="rerank">测试</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 模型相关API -->
+                            <div class="accordion mb-2" id="modelsAccordion">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#modelsCollapse">
+                                            模型相关 API
+                                        </button>
+                                    </h2>
+                                    <div id="modelsCollapse" class="accordion-collapse collapse" data-bs-parent="#modelsAccordion">
+                                        <div class="accordion-body">
+                                            <div class="api-endpoint-item">
+                                                <div class="api-endpoint-url" id="models-url"></div>
+                                                <button class="copy-endpoint-btn" data-endpoint="models">复制</button>
+                                                <button class="test-endpoint-btn" data-endpoint="models">测试</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 图像相关API -->
+                            <div class="accordion mb-2" id="imagesAccordion">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#imagesCollapse">
+                                            图像相关 API
+                                        </button>
+                                    </h2>
+                                    <div id="imagesCollapse" class="accordion-collapse collapse" data-bs-parent="#imagesAccordion">
+                                        <div class="accordion-body">
+                                            <div class="api-endpoint-item">
+                                                <div class="api-endpoint-url" id="images-url"></div>
+                                                <button class="copy-endpoint-btn" data-endpoint="images">复制</button>
+                                                <button class="test-endpoint-btn" data-endpoint="images">测试</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 添加排序控制按钮组 -->
+                        <div class="sort-controls mb-3">
+                            <div class="d-flex align-items-center">
+                                <span class="me-2">排序方式：</span>
+                                <div class="btn-group">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="score">
+                                        分数 <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="balance">
+                                        余额 <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="success_rate">
+                                        成功率 <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="usage">
+                                        调用次数 <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="rpm">
+                                        RPM <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="tpm">
+                                        TPM <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="keys-container" style="margin-top: 15px;">
+                            <div class="key-item" data-key="{{ .key }}" data-score="{{ .score }}" data-balance="{{ .balance }}" data-success-rate="{{ .success_rate }}" data-usage="{{ .total_calls }}" data-rpm="{{ .rpm }}" data-tpm="{{ .tpm }}">
+                                <div class="form-check">
+                                    <input class="form-check-input key-checkbox" type="checkbox" value="{{ .key }}" id="key-{{ .key }}">
+                                    <label class="form-check-label" for="key-{{ .key }}">
+                                        {{ .key }}
+                                    </label>
+                                </div>
+                                <div class="key-info">
+                                    <span class="badge bg-primary" data-score="{{ .score }}">分数: {{ .score }}</span>
+                                    <span class="badge bg-success" data-balance="{{ .balance }}">余额: {{ .balance }}</span>
+                                    <span class="badge bg-info" data-success-rate="{{ .success_rate }}">成功率: {{ .success_rate }}%</span>
+                                    <span class="badge bg-warning text-dark" data-usage="{{ .total_calls }}">调用: {{ .total_calls }}</span>
+                                    <span class="badge bg-secondary" data-rpm="{{ .rpm }}">RPM: {{ .rpm }}</span>
+                                    <span class="badge bg-secondary" data-tpm="{{ .tpm }}">TPM: {{ .tpm }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <nav aria-label="API 密钥分页">
+                            <ul class="pagination" id="keys-pagination">
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加Toast容器 -->
+    <div class="toast-container" id="toast-container"></div>
+    
+    <!-- 添加日志查看器 -->
+    <div class="log-viewer" id="log-viewer">
+        <span class="log-close" id="log-close">&times;</span>
+        <div class="log-content" id="log-content">加载日志中...</div>
+    </div>
+
+</body>
+</html> 

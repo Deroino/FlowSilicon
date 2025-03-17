@@ -1,0 +1,48 @@
+# API代理配置
+api_proxy:
+  # API基础URL，用于转发请求
+  base_url: https://api.siliconflow.cn
+
+# 服务器配置
+server:
+  # 服务器监听端口
+  port: 3201
+
+# 日志配置
+log:
+  # 日志文件最大大小（MB），超过此大小的日志将被清理
+  max_size_mb: 1
+
+# 应用程序配置
+app:
+  # 应用程序标题，显示在Web界面上
+  title: "流动硅基 FlowSilicon"
+  # 最低余额阈值，低于此值的API密钥将被自动禁用
+  min_balance_threshold: 0.8
+  # 余额显示的最大值，用于前端显示进度条
+  max_balance_display: 14
+  # 每页显示的密钥数量
+  items_per_page: 5
+  # 最大统计条目数，用于限制请求统计的历史记录数量
+  max_stats_entries: 60
+  # 恢复检查间隔（分钟），系统会每隔此时间尝试恢复被禁用的密钥
+  recovery_interval: 10
+  # 最大连续失败次数，超过此值的密钥将被自动禁用
+  max_consecutive_failures: 5
+  # 权重配置
+  # 余额评分权重（默认0.4，即40%）
+  balance_weight: 0.4
+  # 成功率评分权重（默认0.3，即30%）
+  success_rate_weight: 0.3
+  # RPM评分权重（默认0.15，即15%）
+  rpm_weight: 0.15
+  # TPM评分权重（默认0.15，即15%）
+  tpm_weight: 0.15
+  # 自动更新配置
+  stats_refresh_interval: 100  # 统计信息自动刷新间隔（秒）
+  rate_refresh_interval: 150   # 速率监控自动刷新间隔（秒）
+  auto_update_interval: 100   # API密钥状态自动更新间隔（秒）
+  # 模型特定的密钥选择策略
+  # 策略ID: 1=高成功率, 2=高分数, 3=低RPM, 4=低TPM, 5=高余额
+  model_key_strategies:
+    "deepseek-ai/DeepSeek-V3": 2  # 使用高成功率策略
