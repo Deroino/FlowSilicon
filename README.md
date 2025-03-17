@@ -66,7 +66,7 @@ FlowSilicon 提供全面的 API 密钥管理功能：
 
 ### 📥 直接下载
 
-1. 从 [Releases](https://github.com/yourusername/flowsilicon/releases) 页面下载最新版本的可执行文件
+1. 从 [Releases](https://github.com/HanHai-Space/FlowSilicon/releases) or [蓝奏云](https://wwzk.lanzouo.com/iKvsW2quztha) 页面下载最新版本的可执行文件
 2. 解压后直接运行 `flowsilicon.exe`（Windows）
 
 ### 📥 从源码构建
