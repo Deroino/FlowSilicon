@@ -1,4 +1,4 @@
-# FlowSilicon<img src="logo.png" alt="FlowSilicon Logo" width="50"/>
+# FlowSilicon<img src="./img/logo.png" alt="FlowSilicon Logo" width="50"/>
 
 <p align="center">
   <img src="https://img.shields.io/badge/版本-1.3.5-blue.svg" alt="版本">
@@ -7,7 +7,27 @@
 </p>
 FlowSilicon 是一个专为硅基流动 API 设计的高性能代理服务，提供全面的 API 密钥管理、智能负载均衡、请求转发和实时监控功能。通过 FlowSilicon，您可以更高效地管理和使用硅基流动的各种 AI 服务，同时获得直观友好的 Web 管理界面。
 
-![image-20250317180521514](./img/image.png)
+
+
+## 截图
+
+![image-20250317180521514](./img/image1.png)
+
+### 沉浸式翻译
+
+![image-20250317191143334](./img/image2.png)
+
+### Page Assist
+
+![image3](./img/image3.png)
+
+### Cherry Studio
+
+![image4](./img/image4.png)
+
+
+
+
 
 ## ✨ 核心功能
 
@@ -53,7 +73,7 @@ FlowSilicon 提供全面的 API 密钥管理功能：
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/flowsilicon.git
+git https://github.com/HanHai-Space/FlowSilicon.git
 cd flowsilicon
 
 # 构建
