@@ -8,8 +8,10 @@ package config
 
 import (
 	"encoding/json"
+	"flowsilicon/internal/logger"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -22,9 +24,17 @@ type Config struct {
 		Port int `mapstructure:"port"`
 	} `mapstructure:"server"`
 	ApiProxy struct {
-		BaseURL    string `mapstructure:"base_url"`
-		ModelIndex int    `mapstructure:"model_index"` // 当前使用的模型索引
+		BaseURL    string      `mapstructure:"base_url"`
+		ModelIndex int         `mapstructure:"model_index"` // 当前使用的模型索引
+		Retry      RetryConfig `mapstructure:"retry"`       // 重试配置
 	} `mapstructure:"api_proxy"`
+	Proxy struct {
+		HttpProxy  string `mapstructure:"http_proxy"`  // HTTP代理地址
+		HttpsProxy string `mapstructure:"https_proxy"` // HTTPS代理地址
+		SocksProxy string `mapstructure:"socks_proxy"` // SOCKS5代理地址
+		ProxyType  string `mapstructure:"proxy_type"`  // 代理类型：http, https, socks5
+		Enabled    bool   `mapstructure:"enabled"`     // 是否启用代理
+	} `mapstructure:"proxy"`
 	App struct {
 		Title                  string  `mapstructure:"title"`                    // 应用标题
 		MinBalanceThreshold    float64 `mapstructure:"min_balance_threshold"`    // 最低余额阈值
@@ -44,6 +54,8 @@ type Config struct {
 		RateRefreshInterval  int `mapstructure:"rate_refresh_interval"`  // 速率监控自动刷新间隔（秒）
 		// 模型特定的密钥选择策略
 		ModelKeyStrategies map[string]int `mapstructure:"model_key_strategies"` // 模型特定的密钥选择策略
+		// 系统托盘图标设置
+		HideIcon bool `mapstructure:"hide_icon"` // 是否隐藏系统托盘图标
 	} `mapstructure:"app"`
 	Log struct {
 		MaxSizeMB int `mapstructure:"max_size_mb"` // 日志文件最大大小（MB）
@@ -92,6 +104,8 @@ var (
 	dailyRequestCount int       // 当天累计请求数
 	dailyTokenCount   int       // 当天累计令牌数
 	lastResetDay      time.Time // 上次重置日期
+
+	apiKeysFile string // 用于存储API密钥文件路径的变量
 )
 
 // LoadConfig 加载配置文件
@@ -123,11 +137,35 @@ func LoadConfig(configPath string) (*Config, error) {
 		now := time.Now()
 		lastResetDay = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
+		// 统一模型名称的大小写处理
+		standardizeModelKeyStrategies()
+
 		// 加载成功后初始化API密钥
 		LoadApiKeys()
 	})
 
 	return config, err
+}
+
+// standardizeModelKeyStrategies 统一模型名称的大小写处理
+func standardizeModelKeyStrategies() {
+	if config == nil || config.App.ModelKeyStrategies == nil {
+		return
+	}
+
+	// 创建一个新的映射，用于存储标准化后的键值对
+	standardizedStrategies := make(map[string]int)
+
+	// 将所有键统一为小写形式
+	for model, strategy := range config.App.ModelKeyStrategies {
+		standardModel := model // 保留原始格式，以便日志记录
+		logger.Info("模型策略配置: 原始=%s, 策略=%d", model, strategy)
+		standardizedStrategies[standardModel] = strategy
+	}
+
+	// 替换原有映射
+	config.App.ModelKeyStrategies = standardizedStrategies
+	logger.Info("模型策略配置标准化完成: %v", config.App.ModelKeyStrategies)
 }
 
 // GetConfig 获取配置
@@ -139,6 +177,19 @@ func GetConfig() *Config {
 		config.ApiProxy.BaseURL = "https://api.siliconflow.cn" // 默认API基础URL
 		config.ApiProxy.ModelIndex = 0                         // 默认模型索引
 
+		// 设置默认的重试配置
+		config.ApiProxy.Retry.MaxRetries = 1                                 // 默认最大重试次数
+		config.ApiProxy.Retry.RetryDelayMs = 1000                            // 默认重试间隔为1秒
+		config.ApiProxy.Retry.RetryOnStatusCodes = []int{500, 502, 503, 504} // 默认重试的HTTP状态码
+		config.ApiProxy.Retry.RetryOnNetworkErrors = true                    // 默认对网络错误进行重试
+
+		// 设置代理默认值
+		config.Proxy.HttpProxy = ""  // 默认不使用HTTP代理
+		config.Proxy.HttpsProxy = "" // 默认不使用HTTPS代理
+		config.Proxy.SocksProxy = "" // 默认不使用SOCKS5代理
+		config.Proxy.ProxyType = ""  // 默认代理类型为空
+		config.Proxy.Enabled = false // 默认不启用代理
+
 		// 应用默认配置
 		config.App.Title = "API 密钥管理系统"       // 默认标题
 		config.App.MinBalanceThreshold = 1.8  // 默认最低余额阈值
@@ -147,6 +198,7 @@ func GetConfig() *Config {
 		config.App.MaxStatsEntries = 60       // 默认最大统计条目数
 		config.App.RecoveryInterval = 10      // 默认恢复检查间隔（分钟）
 		config.App.MaxConsecutiveFailures = 5 // 默认最大连续失败次数
+		config.App.HideIcon = false           // 默认不隐藏系统托盘图标
 
 		// 设置默认权重
 		config.App.BalanceWeight = 0.4     // 默认余额权重
@@ -181,20 +233,31 @@ func GetApiKeys() []ApiKey {
 	return keysCopy
 }
 
+// SetApiKeysFile 设置API密钥文件路径
+func SetApiKeysFile(path string) {
+	keysMutex.Lock()
+	defer keysMutex.Unlock()
+	apiKeysFile = path
+	log.Printf("设置API密钥文件路径: %s", apiKeysFile)
+}
+
 // LoadApiKeys 从文件加载API密钥
 func LoadApiKeys() error {
-	// 尝试从文件加载API密钥
-	keysFile := "./data/api_keys.json"
+	// 如果apiKeysFile未设置，使用默认路径
+	if apiKeysFile == "" {
+		apiKeysFile = "data/api_keys.json"
+		log.Printf("使用默认API密钥文件路径: %s", apiKeysFile)
+	}
 
 	// 检查文件是否存在
-	if _, err := os.Stat(keysFile); os.IsNotExist(err) {
+	if _, err := os.Stat(apiKeysFile); os.IsNotExist(err) {
 		log.Printf("API密钥文件不存在，将使用空列表")
 		apiKeys = make([]ApiKey, 0)
 		return nil
 	}
 
 	// 读取文件
-	data, err := os.ReadFile(keysFile)
+	data, err := os.ReadFile(apiKeysFile)
 	if err != nil {
 		log.Printf("读取API密钥文件失败: %v", err)
 		apiKeys = make([]ApiKey, 0)
@@ -1120,9 +1183,21 @@ func SaveApiKeysWithLock(withLock bool) error {
 		return err
 	}
 
+	// 如果apiKeysFile未设置，使用默认路径
+	if apiKeysFile == "" {
+		apiKeysFile = "data/api_keys.json"
+		log.Printf("使用默认API密钥文件路径: %s", apiKeysFile)
+	}
+
+	// 确保目录存在
+	dir := filepath.Dir(apiKeysFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("创建API密钥目录失败: %v", err)
+		return err
+	}
+
 	// 写入文件
-	keysFile := "./data/api_keys.json"
-	if err := os.WriteFile(keysFile, data, 0644); err != nil {
+	if err := os.WriteFile(apiKeysFile, data, 0644); err != nil {
 		log.Printf("写入API密钥文件失败: %v", err)
 		return err
 	}
@@ -1189,4 +1264,16 @@ func GetCurrentTPD() int {
 
 	// 返回计算的每日令牌数
 	return totalTokens
+}
+
+// UpdateConfig 更新全局配置
+func UpdateConfig(newConfig *Config) {
+	keysMutex.Lock()
+	defer keysMutex.Unlock()
+
+	// 更新全局配置
+	config = newConfig
+
+	// 标准化模型策略配置
+	standardizeModelKeyStrategies()
 }

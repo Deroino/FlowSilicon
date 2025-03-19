@@ -1,6 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 22:35:00
+  @since: 2025/3/17 11:55:00
   @desc: API 测试函数
 **/
 
@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 )
 
 // TestChatAPI 测试对话API是否正常工作
@@ -60,9 +59,7 @@ func TestChatAPI(apiKey string) (bool, string, error) {
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
 	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	client := utils.CreateClient()
 
 	// 发送请求
 	resp, err := client.Do(req)
@@ -146,9 +143,7 @@ func TestImageGeneration(apiKey string) (bool, string, error) {
 	logger.Info("图片生成测试使用的API密钥: %s", utils.MaskKey(apiKey))
 
 	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 60 * time.Second, // 图片生成可能需要更长时间
-	}
+	client := utils.CreateClient()
 
 	// 发送请求
 	logger.Info("正在发送图片生成测试请求...")
@@ -239,9 +234,7 @@ func TestModelsAPI(apiKey string) (bool, string, error) {
 	logger.Info("模型列表测试使用的API密钥: %s", utils.MaskKey(apiKey))
 
 	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	client := utils.CreateClient()
 
 	// 发送请求
 	logger.Info("正在发送模型列表测试请求...")
@@ -343,9 +336,7 @@ func TestRerankAPI(apiKey string) (bool, string, error) {
 	logger.Info("重排序测试使用的API密钥: %s", utils.MaskKey(apiKey))
 
 	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	client := utils.CreateClient()
 
 	// 发送请求
 	logger.Info("正在发送重排序测试请求...")
@@ -435,9 +426,7 @@ func TestEmbeddings(apiKey string) (bool, string, error) {
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
 	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	client := utils.CreateClient()
 
 	// 发送请求
 	resp, err := client.Do(req)

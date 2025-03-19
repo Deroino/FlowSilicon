@@ -8,6 +8,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"flowsilicon/internal/logger"
 	"flowsilicon/pkg/utils"
 	"strings"
 )
@@ -35,6 +36,7 @@ func AnalyzeRequest(path string, bodyBytes []byte) (string, string, int) {
 			// 获取模型名称
 			if model, ok := requestData["model"].(string); ok {
 				modelName = model
+				logger.Info("提取到聊天模型名称: %s", modelName)
 			}
 
 			// 估计token数量
@@ -66,6 +68,7 @@ func AnalyzeRequest(path string, bodyBytes []byte) (string, string, int) {
 			// 获取模型名称
 			if model, ok := requestData["model"].(string); ok {
 				modelName = model
+				logger.Info("提取到补全模型名称: %s", modelName)
 			}
 
 			// 估计token数量
@@ -81,6 +84,7 @@ func AnalyzeRequest(path string, bodyBytes []byte) (string, string, int) {
 		requestType = "large_completion"
 	}
 
+	logger.Info("请求分析结果: 类型=%s, 模型=%s, 估计token=%d", requestType, modelName, tokenEstimate)
 	return requestType, modelName, tokenEstimate
 }
 
@@ -107,6 +111,7 @@ func AnalyzeOpenAIRequest(path string, bodyBytes []byte) (string, string, int) {
 			// 获取模型名称
 			if model, ok := requestData["model"].(string); ok {
 				modelName = model
+				logger.Info("提取到OpenAI聊天模型名称: %s", modelName)
 			}
 
 			// 估计token数量
@@ -138,6 +143,7 @@ func AnalyzeOpenAIRequest(path string, bodyBytes []byte) (string, string, int) {
 			// 获取模型名称
 			if model, ok := requestData["model"].(string); ok {
 				modelName = model
+				logger.Info("提取到OpenAI补全模型名称: %s", modelName)
 			}
 
 			// 估计token数量
@@ -153,5 +159,6 @@ func AnalyzeOpenAIRequest(path string, bodyBytes []byte) (string, string, int) {
 		requestType = "large_completion"
 	}
 
+	logger.Info("OpenAI请求分析结果: 类型=%s, 模型=%s, 估计token=%d", requestType, modelName, tokenEstimate)
 	return requestType, modelName, tokenEstimate
 }

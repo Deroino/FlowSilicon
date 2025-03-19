@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// transformRequestBody 转换请求体，处理OpenAI和硅基流动API之间的差异
+// TransformRequestBody 转换请求体，处理OpenAI和硅基流动API之间的差异
 func TransformRequestBody(body []byte, path string) ([]byte, error) {
 	// 如果请求体为空，直接返回
 	if len(body) == 0 {
@@ -32,7 +32,31 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 	// 处理chat/completions请求
 	if strings.Contains(path, "/chat/completions") {
 		// 检查是否有model字段
-		if _, ok := requestData["model"].(string); !ok {
+		if model, ok := requestData["model"].(string); ok {
+			// 针对Deepseek R1模型的特殊处理
+			if strings.Contains(strings.ToLower(model), "deepseek") && strings.Contains(model, "r1") {
+				// 检查并设置合适的max_tokens值
+				if maxTokens, exists := requestData["max_tokens"]; !exists {
+					// 如果未设置max_tokens，为Deepseek R1设置默认值16000
+					requestData["max_tokens"] = 16000
+					logger.Info("为Deepseek R1自动设置max_tokens=16000")
+				} else if maxTokenValue, ok := maxTokens.(float64); ok && maxTokenValue < 1000 {
+					// 如果设置了但值太小，调整到更合理的值
+					requestData["max_tokens"] = 16000
+					logger.Info("Deepseek R1检测到过小的max_tokens值(%v)，自动调整为16000", maxTokenValue)
+				}
+
+				// 确保流式输出
+				if stream, exists := requestData["stream"]; !exists || stream != true {
+					requestData["stream"] = true
+					logger.Info("为Deepseek R1强制启用流式输出(stream=true)")
+				}
+
+				// 添加足够的超时时间
+				requestData["timeout"] = 3600 // 60分钟
+				logger.Info("为Deepseek R1设置API超时时间为60分钟")
+			}
+		} else {
 			// 如果没有提供模型，使用默认模型
 			requestData["model"] = "GLM-4"
 		}
@@ -41,7 +65,31 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 	// 处理completions请求
 	if strings.Contains(path, "/completions") && !strings.Contains(path, "/chat/completions") {
 		// 检查是否有model字段
-		if _, ok := requestData["model"].(string); !ok {
+		if model, ok := requestData["model"].(string); ok {
+			// 针对Deepseek R1模型的特殊处理
+			if strings.Contains(strings.ToLower(model), "deepseek") && strings.Contains(model, "r1") {
+				// 检查并设置合适的max_tokens值
+				if maxTokens, exists := requestData["max_tokens"]; !exists {
+					// 如果未设置max_tokens，为Deepseek R1设置默认值16000
+					requestData["max_tokens"] = 16000
+					logger.Info("为Deepseek R1自动设置max_tokens=16000")
+				} else if maxTokenValue, ok := maxTokens.(float64); ok && maxTokenValue < 1000 {
+					// 如果设置了但值太小，调整到更合理的值
+					requestData["max_tokens"] = 16000
+					logger.Info("Deepseek R1检测到过小的max_tokens值(%v)，自动调整为16000", maxTokenValue)
+				}
+
+				// 确保流式输出
+				if stream, exists := requestData["stream"]; !exists || stream != true {
+					requestData["stream"] = true
+					logger.Info("为Deepseek R1强制启用流式输出(stream=true)")
+				}
+
+				// 添加足够的超时时间
+				requestData["timeout"] = 3600 // 60分钟
+				logger.Info("为Deepseek R1设置API超时时间为60分钟")
+			}
+		} else {
 			// 如果没有提供模型，使用默认模型
 			requestData["model"] = "GLM-4"
 		}
@@ -183,8 +231,8 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 	return json.Marshal(requestData)
 }
 
-// transformResponseBody 转换响应体，处理硅基流动API和OpenAI之间的差异
-func TransformResponseBody(body []byte) ([]byte, error) {
+// TransformResponseBody 转换响应体，处理硅基流动API和OpenAI之间的差异
+func TransformResponseBody(body []byte, path string) ([]byte, error) {
 	// 如果响应体为空，直接返回
 	if len(body) == 0 {
 		return body, nil
@@ -196,6 +244,22 @@ func TransformResponseBody(body []byte) ([]byte, error) {
 	var responseData map[string]interface{}
 	if err := json.Unmarshal(body, &responseData); err != nil {
 		return body, nil // 如果不是有效的JSON，返回原始响应
+	}
+
+	// 检查是否是标准的Chat Completion或Completion响应格式
+	if choices, hasChoices := responseData["choices"].([]interface{}); hasChoices && len(choices) > 0 {
+		if model, hasModel := responseData["model"].(string); hasModel {
+			// 记录已识别的模型和响应格式
+			logger.Info("识别到标准响应格式: 模型=%s, 类型=%s", model, responseData["object"])
+
+			// 检查是否是DeepSeek模型
+			if strings.Contains(strings.ToLower(model), "deepseek") {
+				logger.Info("识别到DeepSeek模型响应: %s", model)
+			}
+
+			// 已经是标准格式，不需要转换
+			return body, nil
+		}
 	}
 
 	// 检查是否有硅基流动格式的错误响应 (code, message 字段)
@@ -457,7 +521,7 @@ func TransformResponseBody(body []byte) ([]byte, error) {
 	return body, nil
 }
 
-// transformStreamEvent 转换流式响应事件，确保与OpenAI API格式兼容
+// TransformStreamEvent 转换流式响应事件，确保与OpenAI API格式兼容
 func TransformStreamEvent(data []byte) ([]byte, error) {
 	// 如果数据为空或者是[DONE]事件，直接返回
 	if len(data) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
@@ -473,6 +537,57 @@ func TransformStreamEvent(data []byte) ([]byte, error) {
 
 	// 检查是否需要转换
 	if _, hasChoices := eventData["choices"]; hasChoices {
+		// 检查是否是Deepseek R1模型的回复
+		if model, hasModel := eventData["model"].(string); hasModel {
+			if strings.Contains(strings.ToLower(model), "deepseek") && strings.Contains(model, "r1") {
+				logger.Info("检测到Deepseek R1流式响应")
+
+				// 确保choices是数组
+				choices, ok := eventData["choices"].([]interface{})
+				if !ok || len(choices) == 0 {
+					return data, nil
+				}
+
+				// 获取首个choice
+				choice, ok := choices[0].(map[string]interface{})
+				if !ok {
+					return data, nil
+				}
+
+				// 确保delta存在
+				if delta, hasDelta := choice["delta"].(map[string]interface{}); hasDelta {
+					// 确保content存在，即使是空字符串
+					if _, hasContent := delta["content"]; !hasContent {
+						delta["content"] = ""
+						choice["delta"] = delta
+						choices[0] = choice
+						eventData["choices"] = choices
+
+						// 重新编码修改后的事件
+						modifiedData, err := json.Marshal(eventData)
+						if err != nil {
+							return data, nil
+						}
+						return modifiedData, nil
+					}
+				}
+
+				// 将finish_reason为null或缺少的情况处理为明确的null
+				if _, hasFinishReason := choice["finish_reason"]; !hasFinishReason {
+					choice["finish_reason"] = nil
+					choices[0] = choice
+					eventData["choices"] = choices
+
+					// 重新编码确保finish_reason存在
+					modifiedData, err := json.Marshal(eventData)
+					if err != nil {
+						return data, nil
+					}
+					return modifiedData, nil
+				}
+			}
+		}
+
 		// 已经是OpenAI格式，不需要转换
 		return data, nil
 	}

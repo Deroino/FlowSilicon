@@ -11,6 +11,8 @@ import (
 
 	"flowsilicon/internal/common"
 	"flowsilicon/internal/config"
+	"flowsilicon/internal/logger"
+	"flowsilicon/pkg/utils"
 )
 
 // GetOptimalApiKey 智能负载均衡算法选择最佳API密钥
@@ -250,15 +252,22 @@ func getLowTPMKey() (string, error) {
 
 // GetBestKeyForRequest 根据请求类型选择最佳密钥
 func GetBestKeyForRequest(requestType string, modelName string, tokenEstimate int) (string, error) {
-	// 对于大型请求，选择余额高的密钥
-	if tokenEstimate > 5000 {
-		return getHighestBalanceKey()
-	}
+
+	// 添加调试日志
+	logger.Info("GetBestKeyForRequest被调用: 模型=%s, 请求类型=%s, 预估token=%d", modelName, requestType, tokenEstimate)
 
 	// 检查是否有针对该模型的特定策略配置
 	key, found, err := GetModelSpecificKey(modelName)
+	logger.Info("模型特定策略查找结果: 模型=%s, 找到策略=%v", modelName, found)
+
 	if found {
+		logger.Info("使用模型特定策略: 模型=%s, 选择密钥=%s", modelName, utils.MaskKey(key))
 		return key, err
+	}
+
+	// 对于大型请求，选择余额高的密钥
+	if tokenEstimate > 5000 {
+		return getHighestBalanceKey()
 	}
 
 	// 对于流式请求，选择响应速度快的密钥

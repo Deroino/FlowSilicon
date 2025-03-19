@@ -24,8 +24,14 @@ var (
 	loggerMu      sync.Mutex
 	initialized   bool
 	cronScheduler *cron.Cron
-	maxLogSizeMB  int = 10 // 默认日志文件最大大小为10MB
+	maxLogSizeMB  int  = 10 // 默认日志文件最大大小为10MB
+	isGuiMode     bool      // 是否是GUI模式
 )
+
+// SetGuiMode 设置是否为GUI模式
+func SetGuiMode(mode bool) {
+	isGuiMode = mode
+}
 
 // Init 初始化日志系统
 func Init() error {
@@ -49,13 +55,22 @@ func Init() error {
 		return fmt.Errorf("打开日志文件失败: %v", err)
 	}
 
-	// 设置日志输出到文件和控制台
+	// 设置日志输出
 	logFile = file
-	multiWriter := io.MultiWriter(os.Stdout, file)
-	logger = log.New(multiWriter, "", 0) // 不添加前缀，我们将在自定义格式中添加
+
+	var writer io.Writer
+	if isGuiMode {
+		// GUI模式下只写入文件
+		writer = file
+	} else {
+		// 控制台模式下同时写入文件和控制台
+		writer = io.MultiWriter(os.Stdout, file)
+	}
+
+	logger = log.New(writer, "", 0) // 不添加前缀，我们将在自定义格式中添加
 
 	// 设置标准日志库的输出
-	log.SetOutput(multiWriter)
+	log.SetOutput(writer)
 	log.SetFlags(0) // 清除默认标志，我们将使用自定义格式
 
 	// 先标记为已初始化，然后再启动清理任务
@@ -152,9 +167,18 @@ func cleanLogs() {
 
 		// 更新日志文件和写入器
 		logFile = file
-		multiWriter := io.MultiWriter(os.Stdout, file)
-		logger = log.New(multiWriter, "", 0)
-		log.SetOutput(multiWriter)
+
+		var writer io.Writer
+		if isGuiMode {
+			// GUI模式下只写入文件
+			writer = file
+		} else {
+			// 控制台模式下同时写入文件和控制台
+			writer = io.MultiWriter(os.Stdout, file)
+		}
+
+		logger = log.New(writer, "", 0)
+		log.SetOutput(writer)
 
 		// 使用标准日志库记录清理信息，避免递归调用
 		log.Printf("日志已自动清理，文件大小超过 %d MB", maxLogSizeMB)
@@ -244,6 +268,46 @@ func InfoWithKey(apiKey, format string, args ...interface{}) {
 	}
 
 	logger.Println(formatLog(apiKey, format, args...))
+}
+
+// Warn 记录警告日志
+func Warn(format string, args ...interface{}) {
+	// 如果格式字符串为空且没有参数，不记录日志
+	if format == "" && len(args) == 0 {
+		return
+	}
+
+	loggerMu.Lock()
+	defer loggerMu.Unlock()
+
+	if !initialized {
+		if err := Init(); err != nil {
+			log.Printf("初始化日志系统失败: %v", err)
+			return
+		}
+	}
+
+	logger.Println(formatLog("", "WARN: "+format, args...))
+}
+
+// WarnWithKey 记录带API密钥的警告日志
+func WarnWithKey(apiKey, format string, args ...interface{}) {
+	// 如果格式字符串为空且没有参数，不记录日志
+	if format == "" && len(args) == 0 {
+		return
+	}
+
+	loggerMu.Lock()
+	defer loggerMu.Unlock()
+
+	if !initialized {
+		if err := Init(); err != nil {
+			log.Printf("初始化日志系统失败: %v", err)
+			return
+		}
+	}
+
+	logger.Println(formatLog(apiKey, "WARN: "+format, args...))
 }
 
 // Error 记录错误日志

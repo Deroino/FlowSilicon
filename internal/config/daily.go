@@ -69,11 +69,28 @@ type DailyData struct {
 var (
 	dailyData     *DailyData
 	dailyDataLock sync.RWMutex
-	dailyFilePath = "./data/daily.json"
+	dailyFilePath string // 将在初始化时设置
 )
+
+// SetDailyFilePath 设置每日统计数据文件路径
+func SetDailyFilePath(path string) {
+	dailyDataLock.Lock()
+	defer dailyDataLock.Unlock()
+	dailyFilePath = path
+	logger.Info("设置每日统计数据文件路径: %s", dailyFilePath)
+}
 
 // InitDailyStats 初始化每日统计数据
 func InitDailyStats() error {
+	dailyDataLock.Lock()
+	defer dailyDataLock.Unlock()
+
+	// 如果路径未设置，使用默认路径
+	if dailyFilePath == "" {
+		dailyFilePath = "data/daily.json"
+		logger.Info("使用默认的每日统计数据文件路径: %s", dailyFilePath)
+	}
+
 	// 确保data目录存在
 	dataDir := filepath.Dir(dailyFilePath)
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -82,12 +99,12 @@ func InitDailyStats() error {
 	}
 
 	// 尝试加载现有数据
-	if err := loadDailyData(); err != nil {
+	if err := loadDailyDataLocked(); err != nil {
 		// 如果文件不存在，创建新的数据结构
 		if os.IsNotExist(err) {
 			dailyData = createDefaultDailyData()
 			// 立即保存到文件
-			if err := saveDailyData(); err != nil {
+			if err := saveDailyDataLocked(); err != nil {
 				logger.Error("保存每日统计数据失败: %v", err)
 				return err
 			}
@@ -101,7 +118,7 @@ func InitDailyStats() error {
 	}
 
 	// 确保今天的数据存在
-	ensureTodayDataExists()
+	ensureTodayDataExistsLocked()
 
 	return nil
 }
@@ -110,7 +127,11 @@ func InitDailyStats() error {
 func loadDailyData() error {
 	dailyDataLock.Lock()
 	defer dailyDataLock.Unlock()
+	return loadDailyDataLocked()
+}
 
+// loadDailyDataLocked 从文件加载每日统计数据（已加锁）
+func loadDailyDataLocked() error {
 	// 检查文件是否存在
 	if _, err := os.Stat(dailyFilePath); os.IsNotExist(err) {
 		return err
@@ -136,7 +157,11 @@ func loadDailyData() error {
 func saveDailyData() error {
 	dailyDataLock.RLock()
 	defer dailyDataLock.RUnlock()
+	return saveDailyDataLocked()
+}
 
+// saveDailyDataLocked 保存每日统计数据到文件（已加锁）
+func saveDailyDataLocked() error {
 	if dailyData == nil {
 		return nil
 	}
@@ -197,7 +222,11 @@ func createDefaultDailyData() *DailyData {
 func ensureTodayDataExists() {
 	dailyDataLock.Lock()
 	defer dailyDataLock.Unlock()
+	ensureTodayDataExistsLocked()
+}
 
+// ensureTodayDataExistsLocked 确保今天的数据存在（已加锁）
+func ensureTodayDataExistsLocked() {
 	if dailyData == nil {
 		dailyData = createDefaultDailyData()
 		return
