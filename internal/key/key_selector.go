@@ -7,12 +7,21 @@
 package key
 
 import (
+	"sync"
 	"time"
 
 	"flowsilicon/internal/common"
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/logger"
 	"flowsilicon/pkg/utils"
+)
+
+// 添加用于轮询的全局变量
+var (
+	// 记录每种策略的当前轮询索引
+	strategyRoundRobinIndex map[string]int = make(map[string]int)
+	// 互斥锁保护轮询索引的并发访问
+	rrMutex sync.Mutex
 )
 
 // GetOptimalApiKey 智能负载均衡算法选择最佳API密钥
@@ -25,38 +34,6 @@ func GetOptimalApiKey() (string, error) {
 // RequestType 定义请求类型
 type RequestType string
 
-const (
-	RequestTypeEmbedding       RequestType = "embedding"
-	RequestTypeCompletion      RequestType = "completion"
-	RequestTypeLargeCompletion RequestType = "large_completion"
-	RequestTypeStreaming       RequestType = "streaming"
-)
-
-// 根据余额范围获取密钥
-func getKeysByBalanceRange(minBalance, maxBalance float64) []config.ApiKey {
-	activeKeys := config.GetActiveApiKeys()
-	var result []config.ApiKey
-
-	for _, key := range activeKeys {
-		if key.Balance >= minBalance && key.Balance < maxBalance {
-			result = append(result, key)
-		}
-	}
-
-	return result
-}
-
-// 从密钥列表中随机选择一个
-func getRandomKey(keys []config.ApiKey) string {
-	if len(keys) == 0 {
-		return ""
-	}
-
-	// 简单实现，使用第一个密钥
-	// 实际应用中可以使用随机数生成器
-	return keys[0].Key
-}
-
 // 获取任意可用密钥
 func getAnyAvailableKey() (string, error) {
 	activeKeys := config.GetActiveApiKeys()
@@ -68,73 +45,72 @@ func getAnyAvailableKey() (string, error) {
 
 // 获取余额最高的密钥
 func getHighestBalanceKey() (string, error) {
+	return getHighestBalanceKeyWithRoundRobin()
+}
+
+// 获取余额最高的密钥（支持轮询）
+func getHighestBalanceKeyWithRoundRobin() (string, error) {
 	activeKeys := config.GetActiveApiKeys()
 	if len(activeKeys) == 0 {
 		return "", common.ErrNoActiveKeys
 	}
 
-	var highestKey string
+	// 先找出最高余额值
 	var highestBalance float64 = -1
-
 	for _, key := range activeKeys {
 		if key.Balance > highestBalance {
 			highestBalance = key.Balance
-			highestKey = key.Key
 		}
 	}
 
-	return highestKey, nil
-}
+	// 收集所有具有最高余额的密钥
+	var highestBalanceKeys []config.ApiKey
+	for _, key := range activeKeys {
+		if key.Balance == highestBalance {
+			highestBalanceKeys = append(highestBalanceKeys, key)
+		}
+	}
 
-// 获取非保留密钥
-func getNonReservedKey(reservedKeys map[string]bool) (string, error) {
-	activeKeys := config.GetActiveApiKeys()
-	if len(activeKeys) == 0 {
+	// 增加详细日志
+	logger.Info("找到%d个具有相同最高余额(%.2f)的密钥", len(highestBalanceKeys), highestBalance)
+
+	// 记录所有找到的密钥以便调试
+	if len(highestBalanceKeys) > 1 {
+		keyList := ""
+		for i, k := range highestBalanceKeys {
+			if i > 0 {
+				keyList += ", "
+			}
+			keyList += utils.MaskKey(k.Key)
+		}
+		logger.Info("可用于轮询的高余额密钥列表: %s", keyList)
+	}
+
+	// 记录当前轮询索引
+	rrMutex.Lock()
+	currentIndex := strategyRoundRobinIndex["high_balance"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询选择: 策略=high_balance, 当前索引=%d, 总密钥数=%d",
+		currentIndex, len(highestBalanceKeys))
+
+	// 使用轮询选择器获取密钥
+	selectedKey := selectKeyByRoundRobin(highestBalanceKeys, "high_balance")
+	if selectedKey == "" {
 		return "", common.ErrNoActiveKeys
 	}
 
-	for _, key := range activeKeys {
-		if !reservedKeys[key.Key] && key.Balance >= config.GetConfig().App.MinBalanceThreshold {
-			return key.Key, nil
-		}
-	}
+	// 记录选中的密钥和更新后的索引
+	rrMutex.Lock()
+	newIndex := strategyRoundRobinIndex["high_balance"]
+	rrMutex.Unlock()
 
-	// 如果没有非保留密钥，则返回任意密钥
-	return activeKeys[0].Key, nil
-}
+	logger.Info("轮询结果: 策略=high_balance, 选择密钥=%s, 新索引=%d",
+		utils.MaskKey(selectedKey), newIndex)
 
-// GetKeyByBalanceTier 余额分层策略
-func GetKeyByBalanceTier(requestType RequestType) (string, error) {
-	// 将密钥分为高、中、低三个层级
-	highBalanceKeys := getKeysByBalanceRange(10.0, 999.0)
-	mediumBalanceKeys := getKeysByBalanceRange(5.0, 10.0)
-	lowBalanceKeys := getKeysByBalanceRange(1.0, 5.0)
-
-	switch requestType {
-	case RequestTypeEmbedding: // 嵌入请求消耗较少，可以使用低余额密钥
-		if len(lowBalanceKeys) > 0 {
-			key := getRandomKey(lowBalanceKeys)
-			config.UpdateApiKeyLastUsed(key, time.Now().Unix())
-			return key, nil
-		}
-		fallthrough
-	case RequestTypeCompletion: // 普通补全请求使用中等余额密钥
-		if len(mediumBalanceKeys) > 0 {
-			key := getRandomKey(mediumBalanceKeys)
-			config.UpdateApiKeyLastUsed(key, time.Now().Unix())
-			return key, nil
-		}
-		fallthrough
-	case RequestTypeLargeCompletion: // 大型补全请求使用高余额密钥
-		if len(highBalanceKeys) > 0 {
-			key := getRandomKey(highBalanceKeys)
-			config.UpdateApiKeyLastUsed(key, time.Now().Unix())
-			return key, nil
-		}
-	}
-
-	// 如果没有找到合适的密钥，返回任意可用密钥
-	return getAnyAvailableKey()
+	// 更新最后使用时间
+	config.UpdateApiKeyLastUsed(selectedKey, time.Now().Unix())
+	return selectedKey, nil
 }
 
 // 获取历史成功率高的密钥
@@ -144,9 +120,8 @@ func getHighSuccessRateKey(modelName string) (string, error) {
 		return "", common.ErrNoActiveKeys
 	}
 
-	var bestKey string
+	// 找出最高成功率
 	var bestRate float64 = -1
-
 	for _, key := range activeKeys {
 		if key.Balance < config.GetConfig().App.MinBalanceThreshold {
 			continue
@@ -154,30 +129,79 @@ func getHighSuccessRateKey(modelName string) (string, error) {
 
 		if key.SuccessRate > bestRate {
 			bestRate = key.SuccessRate
-			bestKey = key.Key
 		}
 	}
 
-	if bestKey == "" {
+	// 收集所有具有最高成功率的密钥
+	var highSuccessKeys []config.ApiKey
+	for _, key := range activeKeys {
+		if key.Balance >= config.GetConfig().App.MinBalanceThreshold && key.SuccessRate == bestRate {
+			highSuccessKeys = append(highSuccessKeys, key)
+		}
+	}
+
+	if len(highSuccessKeys) == 0 {
 		return getAnyAvailableKey()
 	}
 
-	config.UpdateApiKeyLastUsed(bestKey, time.Now().Unix())
-	return bestKey, nil
+	// 增加详细日志
+	logger.Info("找到%d个具有相同最高成功率(%.2f)的密钥", len(highSuccessKeys), bestRate)
+
+	// 记录所有找到的密钥以便调试
+	if len(highSuccessKeys) > 1 {
+		keyList := ""
+		for i, k := range highSuccessKeys {
+			if i > 0 {
+				keyList += ", "
+			}
+			keyList += utils.MaskKey(k.Key)
+		}
+		logger.Info("可用于轮询的密钥列表: %s", keyList)
+	}
+
+	// 使用轮询选择器
+	strategyKey := "high_success_rate"
+	if modelName != "" {
+		strategyKey = "high_success_rate_" + modelName
+	}
+
+	// 记录当前轮询索引
+	rrMutex.Lock()
+	currentIndex := strategyRoundRobinIndex[strategyKey]
+	rrMutex.Unlock()
+
+	logger.Info("轮询选择: 策略=%s, 当前索引=%d, 总密钥数=%d",
+		strategyKey, currentIndex, len(highSuccessKeys))
+
+	selectedKey := selectKeyByRoundRobin(highSuccessKeys, strategyKey)
+
+	// 记录选中的密钥和更新后的索引
+	rrMutex.Lock()
+	newIndex := strategyRoundRobinIndex[strategyKey]
+	rrMutex.Unlock()
+
+	logger.Info("轮询结果: 策略=%s, 选择密钥=%s, 新索引=%d",
+		strategyKey, utils.MaskKey(selectedKey), newIndex)
+
+	config.UpdateApiKeyLastUsed(selectedKey, time.Now().Unix())
+	return selectedKey, nil
 }
 
 // 获取响应速度快的密钥
 func getFastResponseKey() (string, error) {
-	// 这里可以实现基于历史响应时间的选择逻辑
-	// 简化实现，使用负载最低的密钥作为响应速度快的密钥
+	// 使用低RPM策略
+	return getLowRPMKey()
+}
+
+// getLowRPMKey 获取RPM最低的密钥
+func getLowRPMKey() (string, error) {
 	activeKeys := config.GetActiveApiKeys()
 	if len(activeKeys) == 0 {
 		return "", common.ErrNoActiveKeys
 	}
 
-	var bestKey string
+	// 找出最低RPM值
 	var lowestRPM int = 999999
-
 	for _, key := range activeKeys {
 		if key.Balance < config.GetConfig().App.MinBalanceThreshold {
 			continue
@@ -185,40 +209,57 @@ func getFastResponseKey() (string, error) {
 
 		if key.RequestsPerMinute < lowestRPM {
 			lowestRPM = key.RequestsPerMinute
-			bestKey = key.Key
 		}
 	}
 
-	if bestKey == "" {
+	// 收集所有RPM最低的密钥
+	var lowestRPMKeys []config.ApiKey
+	for _, key := range activeKeys {
+		if key.Balance >= config.GetConfig().App.MinBalanceThreshold && key.RequestsPerMinute == lowestRPM {
+			lowestRPMKeys = append(lowestRPMKeys, key)
+		}
+	}
+
+	if len(lowestRPMKeys) == 0 {
 		return getAnyAvailableKey()
 	}
 
-	config.UpdateApiKeyLastUsed(bestKey, time.Now().Unix())
-	return bestKey, nil
-}
+	// 增加详细日志
+	logger.Info("找到%d个具有相同最低RPM(%d)的密钥", len(lowestRPMKeys), lowestRPM)
 
-// GetKeyByStrategy 根据指定的策略选择密钥
-func GetKeyByStrategy(strategy KeySelectionStrategy) (string, error) {
-	switch strategy {
-	case StrategyHighSuccessRate:
-		return getHighSuccessRateKey("")
-	case StrategyHighScore:
-		return GetOptimalApiKey()
-	case StrategyLowRPM:
-		return getLowRPMKey()
-	case StrategyLowTPM:
-		return getLowTPMKey()
-	case StrategyHighBalance:
-		return getHighestBalanceKey()
-	default:
-		return GetOptimalApiKey()
+	// 记录所有找到的密钥以便调试
+	if len(lowestRPMKeys) > 1 {
+		keyList := ""
+		for i, k := range lowestRPMKeys {
+			if i > 0 {
+				keyList += ", "
+			}
+			keyList += utils.MaskKey(k.Key)
+		}
+		logger.Info("可用于轮询的低RPM密钥列表: %s", keyList)
 	}
-}
 
-// getLowRPMKey 获取RPM最低的密钥
-func getLowRPMKey() (string, error) {
-	// 使用getFastResponseKey函数，因为它已经实现了获取RPM最低的密钥的逻辑
-	return getFastResponseKey()
+	// 记录当前轮询索引
+	rrMutex.Lock()
+	currentIndex := strategyRoundRobinIndex["low_rpm"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询选择: 策略=low_rpm, 当前索引=%d, 总密钥数=%d",
+		currentIndex, len(lowestRPMKeys))
+
+	// 使用轮询选择器
+	selectedKey := selectKeyByRoundRobin(lowestRPMKeys, "low_rpm")
+
+	// 记录选中的密钥和更新后的索引
+	rrMutex.Lock()
+	newIndex := strategyRoundRobinIndex["low_rpm"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询结果: 策略=low_rpm, 选择密钥=%s, 新索引=%d",
+		utils.MaskKey(selectedKey), newIndex)
+
+	config.UpdateApiKeyLastUsed(selectedKey, time.Now().Unix())
+	return selectedKey, nil
 }
 
 // getLowTPMKey 获取TPM最低的密钥
@@ -228,9 +269,8 @@ func getLowTPMKey() (string, error) {
 		return "", common.ErrNoActiveKeys
 	}
 
-	var bestKey string
+	// 找出最低TPM值
 	var lowestTPM int = 999999
-
 	for _, key := range activeKeys {
 		if key.Balance < config.GetConfig().App.MinBalanceThreshold {
 			continue
@@ -238,16 +278,57 @@ func getLowTPMKey() (string, error) {
 
 		if key.TokensPerMinute < lowestTPM {
 			lowestTPM = key.TokensPerMinute
-			bestKey = key.Key
 		}
 	}
 
-	if bestKey == "" {
+	// 收集所有TPM最低的密钥
+	var lowestTPMKeys []config.ApiKey
+	for _, key := range activeKeys {
+		if key.Balance >= config.GetConfig().App.MinBalanceThreshold && key.TokensPerMinute == lowestTPM {
+			lowestTPMKeys = append(lowestTPMKeys, key)
+		}
+	}
+
+	if len(lowestTPMKeys) == 0 {
 		return getAnyAvailableKey()
 	}
 
-	config.UpdateApiKeyLastUsed(bestKey, time.Now().Unix())
-	return bestKey, nil
+	// 增加详细日志
+	logger.Info("找到%d个具有相同最低TPM(%d)的密钥", len(lowestTPMKeys), lowestTPM)
+
+	// 记录所有找到的密钥以便调试
+	if len(lowestTPMKeys) > 1 {
+		keyList := ""
+		for i, k := range lowestTPMKeys {
+			if i > 0 {
+				keyList += ", "
+			}
+			keyList += utils.MaskKey(k.Key)
+		}
+		logger.Info("可用于轮询的低TPM密钥列表: %s", keyList)
+	}
+
+	// 记录当前轮询索引
+	rrMutex.Lock()
+	currentIndex := strategyRoundRobinIndex["low_tpm"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询选择: 策略=low_tpm, 当前索引=%d, 总密钥数=%d",
+		currentIndex, len(lowestTPMKeys))
+
+	// 使用轮询选择器
+	selectedKey := selectKeyByRoundRobin(lowestTPMKeys, "low_tpm")
+
+	// 记录选中的密钥和更新后的索引
+	rrMutex.Lock()
+	newIndex := strategyRoundRobinIndex["low_tpm"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询结果: 策略=low_tpm, 选择密钥=%s, 新索引=%d",
+		utils.MaskKey(selectedKey), newIndex)
+
+	config.UpdateApiKeyLastUsed(selectedKey, time.Now().Unix())
+	return selectedKey, nil
 }
 
 // GetBestKeyForRequest 根据请求类型选择最佳密钥
@@ -275,112 +356,166 @@ func GetBestKeyForRequest(requestType string, modelName string, tokenEstimate in
 		return getFastResponseKey()
 	}
 
-	// 默认使用智能负载均衡策略
-	return GetOptimalApiKey()
+	// 默认使用普通轮询策略（而不是智能负载均衡策略）
+	return getRoundRobinKey()
 }
 
-// 预测性故障规避
-func isPredictedToFail(key string) bool {
-	// 简化实现，基于连续失败次数
+// selectKeyByRoundRobin 使用轮询方式从密钥列表中选择一个
+func selectKeyByRoundRobin(keys []config.ApiKey, strategyName string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+
+	// 只有一个密钥时直接返回
+	if len(keys) == 1 {
+		logger.Info("轮询: 策略=%s 只有1个密钥可用，直接返回", strategyName)
+		return keys[0].Key
+	}
+
+	// 获取当前索引
+	rrMutex.Lock()
+
+	// 确保索引存在
+	index, exists := strategyRoundRobinIndex[strategyName]
+	if !exists {
+		logger.Info("轮询: 策略=%s 首次使用，初始化索引为0", strategyName)
+		index = 0
+	}
+
+	// 确保索引在有效范围内
+	if index >= len(keys) {
+		logger.Info("轮询: 策略=%s 索引越界(%d >= %d)，重置为0",
+			strategyName, index, len(keys))
+		index = 0
+	}
+
+	// 获取当前密钥
+	selectedKey := keys[index].Key
+
+	// 更新索引
+	strategyRoundRobinIndex[strategyName] = (index + 1) % len(keys)
+
+	logger.Info("轮询: 策略=%s 从索引%d选择密钥%s, 下次索引更新为%d",
+		strategyName, index, utils.MaskKey(selectedKey),
+		strategyRoundRobinIndex[strategyName])
+
+	rrMutex.Unlock()
+
+	return selectedKey
+}
+
+// GetOptimalApiKeyWithRoundRobin 获取得分最高的API密钥，带轮询功能
+func GetOptimalApiKeyWithRoundRobin() (string, error) {
 	activeKeys := config.GetActiveApiKeys()
+	if len(activeKeys) == 0 {
+		return "", common.ErrNoActiveKeys
+	}
 
-	for _, k := range activeKeys {
-		if k.Key == key && k.ConsecutiveFailures >= 2 {
-			return true
+	// 计算密钥得分
+	keysWithScores := CalculateKeyScores(activeKeys)
+	if len(keysWithScores) == 0 {
+		return "", common.ErrNoActiveKeys
+	}
+
+	// 获取最高分数
+	highestScore := keysWithScores[0].Score
+
+	// 收集所有具有最高分数的密钥
+	var highestScoreKeys []config.ApiKey
+	for _, keyWithScore := range keysWithScores {
+		if keyWithScore.Score == highestScore {
+			highestScoreKeys = append(highestScoreKeys, keyWithScore.Key)
 		}
 	}
 
-	return false
-}
+	// 增加详细日志
+	logger.Info("找到%d个具有相同最高分数(%.4f)的密钥", len(highestScoreKeys), highestScore)
 
-// 保留高余额密钥的映射
-var reservedHighBalanceKeys = make(map[string]bool)
-
-// ReserveHighBalanceKeys 保留一定数量的高余额密钥
-func ReserveHighBalanceKeys(count int) {
-	// 清空之前的保留
-	reservedHighBalanceKeys = make(map[string]bool)
-
-	// 获取所有密钥并按余额排序
-	config.SortApiKeysByBalance()
-	sortedKeys := config.GetApiKeys()
-
-	// 保留指定数量的高余额密钥
-	for i := 0; i < min(count, len(sortedKeys)); i++ {
-		reservedHighBalanceKeys[sortedKeys[i].Key] = true
-	}
-}
-
-// GetKeyForImportantRequest 获取用于重要请求的密钥
-func GetKeyForImportantRequest(isImportant bool) (string, error) {
-	if isImportant {
-		// 重要请求可以使用保留的高余额密钥
-		return getHighestBalanceKey()
-	} else {
-		// 普通请求只能使用非保留密钥
-		return getNonReservedKey(reservedHighBalanceKeys)
-	}
-}
-
-// 错误定义
-var (
-	ErrNoActiveKeys = common.NewApiError("no active API keys available", 500)
-)
-
-// min 返回两个整数中的较小值
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// calculateKeyScore 计算单个密钥的得分
-func calculateKeyScore(key config.ApiKey) float64 {
-	cfg := config.GetConfig()
-
-	// 获取权重
-	balanceWeight := cfg.App.BalanceWeight
-	successRateWeight := cfg.App.SuccessRateWeight
-	rpmWeight := cfg.App.RPMWeight
-	tpmWeight := cfg.App.TPMWeight
-
-	// 计算余额得分 (0-1)
-	balanceScore := key.Balance / cfg.App.MaxBalanceDisplay
-	if balanceScore > 1 {
-		balanceScore = 1
-	}
-
-	// 计算成功率得分 (0-1)
-	successRateScore := key.SuccessRate
-
-	// 计算RPM得分 (0-1)，RPM越低得分越高
-	rpmScore := 1.0
-	if key.RequestsPerMinute > 0 {
-		// 假设最大RPM为100
-		maxRPM := 100.0
-		rpmScore = 1 - (float64(key.RequestsPerMinute) / maxRPM)
-		if rpmScore < 0 {
-			rpmScore = 0
+	// 记录所有找到的密钥以便调试
+	if len(highestScoreKeys) > 1 {
+		keyList := ""
+		for i, k := range highestScoreKeys {
+			if i > 0 {
+				keyList += ", "
+			}
+			keyList += utils.MaskKey(k.Key)
 		}
+		logger.Info("可用于轮询的高分数密钥列表: %s", keyList)
 	}
 
-	// 计算TPM得分 (0-1)，TPM越低得分越高
-	tpmScore := 1.0
-	if key.TokensPerMinute > 0 {
-		// 假设最大TPM为10000
-		maxTPM := 10000.0
-		tpmScore = 1 - (float64(key.TokensPerMinute) / maxTPM)
-		if tpmScore < 0 {
-			tpmScore = 0
+	// 记录当前轮询索引
+	rrMutex.Lock()
+	currentIndex := strategyRoundRobinIndex["high_score"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询选择: 策略=high_score, 当前索引=%d, 总密钥数=%d",
+		currentIndex, len(highestScoreKeys))
+
+	// 使用轮询选择器
+	selectedKey := selectKeyByRoundRobin(highestScoreKeys, "high_score")
+	if selectedKey == "" {
+		return "", common.ErrNoActiveKeys
+	}
+
+	// 记录选中的密钥和更新后的索引
+	rrMutex.Lock()
+	newIndex := strategyRoundRobinIndex["high_score"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询结果: 策略=high_score, 选择密钥=%s, 新索引=%d",
+		utils.MaskKey(selectedKey), newIndex)
+
+	// 更新最后使用时间
+	config.UpdateApiKeyLastUsed(selectedKey, time.Now().Unix())
+
+	return selectedKey, nil
+}
+
+// getRoundRobinKey 实现普通轮询策略，轮询所有可用的API密钥
+func getRoundRobinKey() (string, error) {
+	activeKeys := config.GetActiveApiKeys()
+	if len(activeKeys) == 0 {
+		return "", common.ErrNoActiveKeys
+	}
+
+	// 增加详细日志
+	logger.Info("轮询策略: 找到%d个可用的API密钥进行轮询", len(activeKeys))
+
+	// 记录所有找到的密钥以便调试
+	if len(activeKeys) > 1 {
+		keyList := ""
+		for i, k := range activeKeys {
+			if i > 0 {
+				keyList += ", "
+			}
+			keyList += utils.MaskKey(k.Key)
 		}
+		logger.Info("可用于轮询的API密钥列表: %s", keyList)
 	}
 
-	// 计算加权总分
-	totalScore := balanceWeight*balanceScore +
-		successRateWeight*successRateScore +
-		rpmWeight*rpmScore +
-		tpmWeight*tpmScore
+	// 记录当前轮询索引
+	rrMutex.Lock()
+	currentIndex := strategyRoundRobinIndex["round_robin"]
+	rrMutex.Unlock()
 
-	return totalScore
+	logger.Info("轮询选择: 策略=round_robin, 当前索引=%d, 总密钥数=%d",
+		currentIndex, len(activeKeys))
+
+	// 使用轮询选择器获取密钥
+	selectedKey := selectKeyByRoundRobin(activeKeys, "round_robin")
+	if selectedKey == "" {
+		return "", common.ErrNoActiveKeys
+	}
+
+	// 记录选中的密钥和更新后的索引
+	rrMutex.Lock()
+	newIndex := strategyRoundRobinIndex["round_robin"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询结果: 策略=round_robin, 选择密钥=%s, 新索引=%d",
+		utils.MaskKey(selectedKey), newIndex)
+
+	// 更新最后使用时间
+	config.UpdateApiKeyLastUsed(selectedKey, time.Now().Unix())
+	return selectedKey, nil
 }

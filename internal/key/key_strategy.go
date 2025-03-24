@@ -16,4 +16,5 @@ const (
 	StrategyLowRPM          KeySelectionStrategy = 3 // 低RPM策略
 	StrategyLowTPM          KeySelectionStrategy = 4 // 低TPM策略
 	StrategyHighBalance     KeySelectionStrategy = 5 // 高余额策略
+	StrategyRoundRobin      KeySelectionStrategy = 6 // 普通轮询策略
 )

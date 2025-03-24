@@ -6,10 +6,10 @@ echo ===== 流动硅基 Windows 打包工具 v1.0 =====
 echo.
 
 REM 设置版本号和路径
-set VERSION=1.3.6
+set VERSION=1.3.7
 set OUTPUT_DIR=build
 set EXE_NAME=flowsilicon.exe
-set ICON_PATH=web\static\favicon_16.ico
+set ICON_PATH=web\static\img\favicon_32.ico
 set TEMP_DIR=temp_build
 
 REM 检查Go环境
@@ -175,7 +175,7 @@ if %ERRORLEVEL% neq 0 (
     
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "FileDescription" "FlowSilicon"
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "ProductName" "FlowSilicon"
-    %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "CompanyName" "FlowSilicon"
+    %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "CompanyName" "Hanhai"
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "LegalCopyright" "版权所有 © 2025"
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-file-version "%VERSION%"
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-product-version "%VERSION%"
@@ -212,85 +212,8 @@ if /i "%COMPRESS%"=="Y" (
 )
 
 echo 第8步: 创建必要目录...
-if not exist %OUTPUT_DIR%\config mkdir %OUTPUT_DIR%\config
 if not exist %OUTPUT_DIR%\data mkdir %OUTPUT_DIR%\data
 if not exist %OUTPUT_DIR%\logs mkdir %OUTPUT_DIR%\logs
-
-echo 第8.5步: 创建默认配置文件...
-set CONFIG_FILE=%OUTPUT_DIR%\config\config.yaml
-echo # API代理配置 > %CONFIG_FILE%
-echo api_proxy: >> %CONFIG_FILE%
-echo   # API基础URL，用于转发请求 >> %CONFIG_FILE%
-echo   base_url: https://api.siliconflow.cn >> %CONFIG_FILE%
-echo   # 重试配置 >> %CONFIG_FILE%
-echo   retry: >> %CONFIG_FILE%
-echo     # 最大重试次数，0表示不重试 >> %CONFIG_FILE%
-echo     max_retries: 2 >> %CONFIG_FILE%
-echo     # 重试间隔（毫秒） >> %CONFIG_FILE%
-echo     retry_delay_ms: 1000 >> %CONFIG_FILE%
-echo     # 是否对特定错误码进行重试 >> %CONFIG_FILE%
-echo     retry_on_status_codes: [500, 502, 503, 504] >> %CONFIG_FILE%
-echo     # 是否对网络错误进行重试 >> %CONFIG_FILE%
-echo     retry_on_network_errors: true >> %CONFIG_FILE%
-echo. >> %CONFIG_FILE%
-echo # 代理设置 >> %CONFIG_FILE%
-echo proxy: >> %CONFIG_FILE%
-echo   # HTTP代理地址，格式为 http://host:port，留空表示不使用代理 >> %CONFIG_FILE%
-echo   http_proxy: "" >> %CONFIG_FILE%
-echo   # HTTPS代理地址，格式为 https://host:port，留空表示不使用代理 >> %CONFIG_FILE%
-echo   https_proxy: "" >> %CONFIG_FILE%
-echo   # SOCKS5代理地址，格式为 host:port，留空表示不使用代理 >> %CONFIG_FILE%
-echo   socks_proxy: "127.0.0.1:10808" >> %CONFIG_FILE%
-echo   # 代理类型：http, https, socks5 >> %CONFIG_FILE%
-echo   proxy_type: "socks5" >> %CONFIG_FILE%
-echo   # 是否启用代理 >> %CONFIG_FILE%
-echo   enabled: false >> %CONFIG_FILE%
-echo. >> %CONFIG_FILE%
-echo # 服务器配置 >> %CONFIG_FILE%
-echo server: >> %CONFIG_FILE%
-echo   # 服务器监听端口 >> %CONFIG_FILE%
-echo   port: 3201 >> %CONFIG_FILE%
-echo. >> %CONFIG_FILE%
-echo # 日志配置 >> %CONFIG_FILE%
-echo log: >> %CONFIG_FILE%
-echo   # 日志文件最大大小（MB），超过此大小的日志将被清理 >> %CONFIG_FILE%
-echo   max_size_mb: 1 >> %CONFIG_FILE%
-echo. >> %CONFIG_FILE%
-echo # 应用程序配置 >> %CONFIG_FILE%
-echo app: >> %CONFIG_FILE%
-echo   # 应用程序标题，显示在Web界面上 >> %CONFIG_FILE%
-echo   title: "流动硅基 FlowSilicon" >> %CONFIG_FILE%
-echo   # 最低余额阈值，低于此值的API密钥将被自动禁用 >> %CONFIG_FILE%
-echo   min_balance_threshold: 0.8 >> %CONFIG_FILE%
-echo   # 余额显示的最大值，用于前端显示进度条 >> %CONFIG_FILE%
-echo   max_balance_display: 14 >> %CONFIG_FILE%
-echo   # 每页显示的密钥数量 >> %CONFIG_FILE%
-echo   items_per_page: 5 >> %CONFIG_FILE%
-echo   # 最大统计条目数，用于限制请求统计的历史记录数量 >> %CONFIG_FILE%
-echo   max_stats_entries: 60 >> %CONFIG_FILE%
-echo   # 恢复检查间隔（分钟），系统会每隔此时间尝试恢复被禁用的密钥 >> %CONFIG_FILE%
-echo   recovery_interval: 10 >> %CONFIG_FILE%
-echo   # 最大连续失败次数，超过此值的密钥将被自动禁用 >> %CONFIG_FILE%
-echo   max_consecutive_failures: 5 >> %CONFIG_FILE%
-echo   # 是否隐藏系统托盘图标 >> %CONFIG_FILE%
-echo   hide_icon: false >> %CONFIG_FILE%
-echo   # 权重配置 >> %CONFIG_FILE%
-echo   # 余额评分权重（默认0.4，即40%%） >> %CONFIG_FILE%
-echo   balance_weight: 0.4 >> %CONFIG_FILE%
-echo   # 成功率评分权重（默认0.3，即30%%） >> %CONFIG_FILE%
-echo   success_rate_weight: 0.3 >> %CONFIG_FILE%
-echo   # RPM评分权重（默认0.15，即15%%） >> %CONFIG_FILE%
-echo   rpm_weight: 0.15 >> %CONFIG_FILE%
-echo   # TPM评分权重（默认0.15，即15%%） >> %CONFIG_FILE%
-echo   tpm_weight: 0.15 >> %CONFIG_FILE%
-echo   # 自动更新配置 >> %CONFIG_FILE%
-echo   stats_refresh_interval: 10  # 统计信息自动刷新间隔（秒） >> %CONFIG_FILE%
-echo   rate_refresh_interval: 15   # 速率监控自动刷新间隔（秒） >> %CONFIG_FILE%
-echo   auto_update_interval: 10   # API密钥状态自动更新间隔（秒） >> %CONFIG_FILE%
-echo   # 模型特定的密钥选择策略 >> %CONFIG_FILE%
-echo   # 策略ID: 1=高成功率, 2=高分数, 3=低RPM, 4=低TPM, 5=高余额 >> %CONFIG_FILE%
-echo   model_key_strategies: >> %CONFIG_FILE%
-echo     "deepseek-ai/DeepSeek-V3": 1  # 使用高成功率策略 >> %CONFIG_FILE%
 
 echo 第9步: 复制Web静态资源文件...
 echo 复制所有Web静态资源...
@@ -299,17 +222,20 @@ REM 确保web目录结构存在
 if not exist %OUTPUT_DIR%\web mkdir %OUTPUT_DIR%\web
 if not exist %OUTPUT_DIR%\web\static mkdir %OUTPUT_DIR%\web\static
 if not exist %OUTPUT_DIR%\web\templates mkdir %OUTPUT_DIR%\web\templates
+if not exist %OUTPUT_DIR%\web\static\img mkdir %OUTPUT_DIR%\web\static\img
+if not exist %OUTPUT_DIR%\web\static\js mkdir %OUTPUT_DIR%\web\static\js
+if not exist %OUTPUT_DIR%\web\static\css mkdir %OUTPUT_DIR%\web\static\css
 
 REM 复制所有静态资源文件
 echo 复制图标文件...
-if exist web\static\*.ico copy web\static\*.ico %OUTPUT_DIR%\web\static\ /Y
-if exist web\static\*.png copy web\static\*.png %OUTPUT_DIR%\web\static\ /Y
+if exist web\static\img\*.ico copy web\static\img\*.ico %OUTPUT_DIR%\web\static\img\ /Y
+if exist web\static\img\*.png copy web\static\img\*.png %OUTPUT_DIR%\web\static\img\ /Y
 
 echo 复制CSS文件...
-if exist web\static\*.css copy web\static\*.css %OUTPUT_DIR%\web\static\ /Y
+if exist web\static\css\*.css copy web\static\css\*.css %OUTPUT_DIR%\web\static\css\ /Y
 
 echo 复制JavaScript文件...
-if exist web\static\*.js copy web\static\*.js %OUTPUT_DIR%\web\static\ /Y
+if exist web\static\js\*.js copy web\static\js\*.js %OUTPUT_DIR%\web\static\js\ /Y
 
 echo 复制HTML模板...
 if exist web\templates\*.html copy web\templates\*.html %OUTPUT_DIR%\web\templates\ /Y
@@ -325,46 +251,8 @@ if exist web\static\images\* (
     xcopy web\static\images\* %OUTPUT_DIR%\web\static\images\ /E /I /Y
 )
 
-REM 创建README文件
-echo 第10步: 创建说明文档...
-set README_FILE=%OUTPUT_DIR%\README.txt
-echo 流动硅基 FlowSilicon v%VERSION% %BUILD_TYPE% > %README_FILE%
-echo. >> %README_FILE%
-echo 构建目标: Windows-amd64 >> %README_FILE%
-echo. >> %README_FILE%
-echo 使用说明: >> %README_FILE%
-echo 1. 双击%TARGET_NAME%运行程序 >> %README_FILE%
-echo 2. 程序会自动打开浏览器访问界面 >> %README_FILE%
 
-if "%MODE%"=="2" (
-    echo 3. 程序会自动缩小到系统托盘（右下角任务栏） >> %README_FILE%
-    echo 4. 右键点击托盘图标可以打开菜单 >> %README_FILE%
-    echo    - 选择"打开界面"可以重新打开Web界面 >> %README_FILE%
-    echo    - 选择"退出程序"可以完全退出程序 >> %README_FILE%
-    echo 5. 配置文件位于config目录下 >> %README_FILE%
-) else (
-    echo 3. 配置文件位于config目录下 >> %README_FILE%
-)
-
-echo. >> %README_FILE%
-echo 注意事项: >> %README_FILE%
-echo - 首次运行会自动创建默认配置文件 >> %README_FILE%
-echo - 日志文件保存在logs目录下 >> %README_FILE%
-echo - 数据文件保存在data目录下 >> %README_FILE%
-
-if "%MODE%"=="2" (
-    echo - 关闭浏览器窗口不会退出程序，程序会继续在后台运行 >> %README_FILE%
-    echo - 要完全退出程序，请使用托盘菜单中的"退出程序"选项 >> %README_FILE%
-)
-
-echo. >> %README_FILE%
-echo 系统要求: >> %README_FILE%
-echo - Windows 7/8/10/11 >> %README_FILE%
-echo - 64位系统 >> %README_FILE%
-echo - 不需要管理员权限 >> %README_FILE%
-echo - 不需要安装额外的运行时 >> %README_FILE%
-
-echo 第11步: 清理临时文件...
+echo 第10步: 清理临时文件...
 if exist %TEMP_DIR% rd /s /q %TEMP_DIR%
 if exist rsrc.syso del rsrc.syso
 
@@ -374,15 +262,5 @@ echo 生成的可执行文件: %OUTPUT_FILE%
 echo 构建类型: %BUILD_TYPE%
 echo 目标平台: Windows-amd64
 echo.
-
-if "%MODE%"=="2" (
-    echo 新增功能:
-    echo - 程序将自动缩小到系统托盘
-    echo - 右键点击托盘图标可以打开菜单
-    echo - 菜单中可以选择"打开界面"或"退出程序"
-    echo.
-)
-
-echo 提示: 如需分发，请将%OUTPUT_DIR%目录下的所有文件一起打包
 
 pause 

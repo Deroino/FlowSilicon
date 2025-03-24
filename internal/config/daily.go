@@ -1,6 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/17 14:30:00
+  @since: 2025/3/17 14:30:23
   @desc: 每日API请求统计数据管理
 **/
 
@@ -13,6 +13,12 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+)
+
+var (
+	dailyData     *DailyData
+	dailyDataLock sync.RWMutex
+	dailyFilePath string // 将在初始化时设置
 )
 
 // DailyStats 每日统计数据结构
@@ -66,12 +72,6 @@ type DailyData struct {
 	KeysUsage   map[string]map[string]KeyUsage `json:"keys_usage"`
 }
 
-var (
-	dailyData     *DailyData
-	dailyDataLock sync.RWMutex
-	dailyFilePath string // 将在初始化时设置
-)
-
 // SetDailyFilePath 设置每日统计数据文件路径
 func SetDailyFilePath(path string) {
 	dailyDataLock.Lock()
@@ -121,13 +121,6 @@ func InitDailyStats() error {
 	ensureTodayDataExistsLocked()
 
 	return nil
-}
-
-// loadDailyData 从文件加载每日统计数据
-func loadDailyData() error {
-	dailyDataLock.Lock()
-	defer dailyDataLock.Unlock()
-	return loadDailyDataLocked()
 }
 
 // loadDailyDataLocked 从文件加载每日统计数据（已加锁）
@@ -218,13 +211,6 @@ func createDefaultDailyData() *DailyData {
 	}
 }
 
-// ensureTodayDataExists 确保今天的数据存在
-func ensureTodayDataExists() {
-	dailyDataLock.Lock()
-	defer dailyDataLock.Unlock()
-	ensureTodayDataExistsLocked()
-}
-
 // ensureTodayDataExistsLocked 确保今天的数据存在（已加锁）
 func ensureTodayDataExistsLocked() {
 	if dailyData == nil {
@@ -278,6 +264,11 @@ func ensureTodayDataExistsLocked() {
 func AddDailyRequestStat(apiKey, model string, requestCount, promptTokens, completionTokens int, isSuccess bool) {
 	dailyDataLock.Lock()
 	defer dailyDataLock.Unlock()
+
+	// 确保dailyData已初始化
+	if dailyData == nil {
+		dailyData = createDefaultDailyData()
+	}
 
 	// 确保今天的数据存在
 	today := time.Now().Format("2006-01-02")
@@ -364,6 +355,11 @@ func AddDailyRequestStat(apiKey, model string, requestCount, promptTokens, compl
 	if apiKey != "" {
 		maskedKey := maskAPIKey(apiKey)
 
+		// 确保KeysUsage已初始化
+		if dailyData.KeysUsage == nil {
+			dailyData.KeysUsage = make(map[string]map[string]KeyUsage)
+		}
+
 		if _, exists := dailyData.KeysUsage[maskedKey]; !exists {
 			dailyData.KeysUsage[maskedKey] = make(map[string]KeyUsage)
 		}
@@ -418,34 +414,6 @@ func GetDailyStats(date string) (*DailyStats, error) {
 	return nil, nil
 }
 
-// GetKeyUsageStats 获取指定密钥在指定日期的使用统计
-func GetKeyUsageStats(apiKey, date string) (*KeyUsage, error) {
-	dailyDataLock.RLock()
-	defer dailyDataLock.RUnlock()
-
-	if dailyData == nil {
-		return nil, nil
-	}
-
-	// 如果未指定日期，使用今天的日期
-	if date == "" {
-		date = time.Now().Format("2006-01-02")
-	}
-
-	maskedKey := maskAPIKey(apiKey)
-
-	// 查找指定密钥和日期的数据
-	if keyData, exists := dailyData.KeysUsage[maskedKey]; exists {
-		if usageData, exists := keyData[date]; exists {
-			// 返回副本以避免外部修改
-			usageCopy := usageData
-			return &usageCopy, nil
-		}
-	}
-
-	return nil, nil
-}
-
 // GetAllDailyStats 获取所有日期的统计数据
 func GetAllDailyStats() (map[string]*DailyStats, error) {
 	dailyDataLock.RLock()
@@ -467,7 +435,7 @@ func GetAllDailyStats() (map[string]*DailyStats, error) {
 // maskAPIKey 掩盖API密钥
 func maskAPIKey(apiKey string) string {
 	if len(apiKey) <= 6 {
-		return "******"
+		return "***"
 	}
-	return apiKey[:6] + "******"
+	return apiKey[:6] + "***"
 }

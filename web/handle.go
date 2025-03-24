@@ -12,8 +12,14 @@ import (
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -62,7 +68,7 @@ func handleAddKey(c *gin.Context) {
 
 	// 如果未提供余额，尝试检查余额
 	if req.Balance == 0 {
-		balance, err := key.CheckKeyBalanceManually(req.Key)
+		balance, err := key.CheckKeyBalance(req.Key)
 		if err == nil {
 			req.Balance = balance
 		} else {
@@ -84,6 +90,11 @@ func handleAddKey(c *gin.Context) {
 
 	// 重新排序 API 密钥
 	config.SortApiKeysByBalance()
+
+	// 保存到数据库
+	if err := config.SaveApiKeys(); err != nil {
+		logger.Error("保存API密钥到数据库失败: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "API密钥添加成功",
@@ -239,6 +250,11 @@ func handleBatchAddKeys(c *gin.Context) {
 	// 重新排序 API 密钥
 	config.SortApiKeysByBalance()
 
+	// 保存到数据库
+	if err := config.SaveApiKeys(); err != nil {
+		logger.Error("保存API密钥到数据库失败: %v", err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": fmt.Sprintf("成功添加 %d 个API密钥，跳过 %d 个余额小于或等于0的密钥", addedCount, skippedCount),
 		"added":   addedCount,
@@ -256,10 +272,21 @@ func handleDeleteKey(c *gin.Context) {
 		return
 	}
 
-	// 删除 API 密钥
-	if success := config.RemoveApiKey(key); !success {
+	// 标记 API 密钥为删除状态，而不是直接删除
+	if success := config.MarkApiKeyForDeletion(key); !success {
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": "API key not found",
+		})
+		return
+	}
+
+	// 立即从列表中移除已标记为删除的密钥
+	config.RemoveMarkedApiKeys()
+
+	// 保存更新后的状态
+	if err := config.SaveApiKeys(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("无法保存API密钥状态: %v", err),
 		})
 		return
 	}
@@ -269,11 +296,11 @@ func handleDeleteKey(c *gin.Context) {
 	})
 }
 
-// handleStats 处理获取 API 密钥统计信息的请求
+// handleStats 处理获取 API 密钥系统概要的请求
 func handleStats(c *gin.Context) {
 	keys := config.GetApiKeys()
 
-	// 计算统计信息
+	// 计算系统概要
 	var totalBalance float64
 	var activeKeys int
 	var lastUsedTime int64
@@ -489,22 +516,69 @@ func handleDeleteZeroBalanceKeys(c *gin.Context) {
 		}
 	}
 
-	// 删除这些API密钥
+	// 标记这些API密钥为删除状态
 	for _, key := range zeroOrNegativeBalanceKeys {
-		config.RemoveApiKey(key)
+		config.MarkApiKeyForDeletion(key)
+	}
+
+	// 立即从列表中移除已标记为删除的密钥
+	config.RemoveMarkedApiKeys()
+
+	// 保存更新后的状态
+	if err := config.SaveApiKeys(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("无法保存API密钥状态: %v", err),
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": fmt.Sprintf("已删除 %d 个余额小于或等于0的API密钥", len(zeroOrNegativeBalanceKeys)),
-		"deleted": zeroOrNegativeBalanceKeys,
+		"message":      fmt.Sprintf("已删除 %d 个余额小于或等于0的API密钥", len(zeroOrNegativeBalanceKeys)),
+		"deleted_keys": zeroOrNegativeBalanceKeys,
 	})
 }
 
 // handleRequestStats 处理获取请求统计数据的请求
 func handleRequestStats(c *gin.Context) {
-	stats := config.GetRequestStats()
+	// 获取当前RPM和TPM
+	rpm, tpm := config.GetCurrentRequestStats()
+	// 获取当前RPD和TPD
+	rpd := config.GetCurrentRPD()
+	tpd := config.GetCurrentTPD()
+
+	// 获取所有API密钥的统计数据
+	keys := config.GetApiKeys()
+	keyStats := make([]map[string]interface{}, 0)
+
+	for _, key := range keys {
+		// 跳过已标记为删除的密钥
+		if key.Delete {
+			continue
+		}
+
+		// 计算成功率
+		successRate := 0.0
+		if key.TotalCalls > 0 {
+			successRate = float64(key.SuccessCalls) / float64(key.TotalCalls)
+		}
+
+		// 添加密钥的统计数据
+		keyStats = append(keyStats, map[string]interface{}{
+			"key":          key.Key,
+			"rpm":          key.RequestsPerMinute,
+			"tpm":          key.TokensPerMinute,
+			"total_calls":  key.TotalCalls,
+			"success_rate": successRate,
+			"score":        key.Score,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"stats": stats,
+		"rpm":       rpm,
+		"tpm":       tpm,
+		"rpd":       rpd,
+		"tpd":       tpd,
+		"key_stats": keyStats,
 	})
 }
 
@@ -793,4 +867,424 @@ func handleGetDailyStatsByDate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"stats": stats,
 	})
+}
+
+// handleGetSettings 处理获取系统设置的请求
+func handleGetSettings(c *gin.Context) {
+	// 获取当前配置
+	cfg := config.GetConfig()
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "无法获取系统配置",
+		})
+		return
+	}
+
+	// 创建与前端匹配的配置数据结构
+	configData := gin.H{
+		"server": gin.H{
+			"port": cfg.Server.Port,
+		},
+		"api_proxy": gin.H{
+			"base_url":             cfg.ApiProxy.BaseURL,
+			"model_index":          cfg.ApiProxy.ModelIndex,
+			"model_key_strategies": cfg.App.ModelKeyStrategies,
+			"retry": gin.H{
+				"max_retries":             cfg.ApiProxy.Retry.MaxRetries,
+				"retry_delay_ms":          cfg.ApiProxy.Retry.RetryDelayMs,
+				"retry_on_status_codes":   cfg.ApiProxy.Retry.RetryOnStatusCodes,
+				"retry_on_network_errors": cfg.ApiProxy.Retry.RetryOnNetworkErrors,
+			},
+		},
+		"proxy": gin.H{
+			"http_proxy":  cfg.Proxy.HttpProxy,
+			"https_proxy": cfg.Proxy.HttpsProxy,
+			"socks_proxy": cfg.Proxy.SocksProxy,
+			"proxy_type":  cfg.Proxy.ProxyType,
+			"enabled":     cfg.Proxy.Enabled,
+		},
+		"app": gin.H{
+			"title":                    cfg.App.Title,
+			"min_balance_threshold":    cfg.App.MinBalanceThreshold,
+			"max_balance_display":      cfg.App.MaxBalanceDisplay,
+			"items_per_page":           cfg.App.ItemsPerPage,
+			"max_stats_entries":        cfg.App.MaxStatsEntries,
+			"recovery_interval":        cfg.App.RecoveryInterval,
+			"max_consecutive_failures": cfg.App.MaxConsecutiveFailures,
+			"balance_weight":           cfg.App.BalanceWeight,
+			"success_rate_weight":      cfg.App.SuccessRateWeight,
+			"rpm_weight":               cfg.App.RPMWeight,
+			"tpm_weight":               cfg.App.TPMWeight,
+			"auto_update_interval":     cfg.App.AutoUpdateInterval,
+			"stats_refresh_interval":   cfg.App.StatsRefreshInterval,
+			"rate_refresh_interval":    cfg.App.RateRefreshInterval,
+			"hide_icon":                cfg.App.HideIcon,
+		},
+		"log": gin.H{
+			"max_size_mb": cfg.Log.MaxSizeMB,
+			"level":       cfg.Log.Level,
+		},
+	}
+
+	// 返回配置信息
+	c.JSON(http.StatusOK, configData)
+}
+
+// handleSaveSettings 处理保存系统设置的请求
+func handleSaveSettings(c *gin.Context) {
+	// 先获取当前配置作为默认值
+	currentConfig := config.GetConfig()
+	if currentConfig == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "无法获取当前系统配置",
+		})
+		return
+	}
+
+	// 创建配置的副本
+	newConfig := *currentConfig
+
+	// 解析请求体到临时结构
+	var configData map[string]interface{}
+	if err := c.ShouldBindJSON(&configData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("无效的配置数据: %v", err),
+		})
+		return
+	}
+
+	// 服务器设置
+	if server, ok := configData["server"].(map[string]interface{}); ok {
+		if port, ok := server["port"].(float64); ok {
+			newConfig.Server.Port = int(port)
+		}
+	}
+
+	// API代理设置
+	if apiProxy, ok := configData["api_proxy"].(map[string]interface{}); ok {
+		if baseURL, ok := apiProxy["base_url"].(string); ok {
+			newConfig.ApiProxy.BaseURL = baseURL
+		}
+		if modelIndex, ok := apiProxy["model_index"].(float64); ok {
+			newConfig.ApiProxy.ModelIndex = int(modelIndex)
+		}
+
+		// 处理模型特定策略
+		if modelKeyStrategies, ok := apiProxy["model_key_strategies"].(map[string]interface{}); ok {
+			// 清空现有策略
+			newConfig.App.ModelKeyStrategies = make(map[string]int)
+
+			// 添加新策略
+			for modelName, strategy := range modelKeyStrategies {
+				if strategyValue, ok := strategy.(float64); ok {
+					newConfig.App.ModelKeyStrategies[modelName] = int(strategyValue)
+				}
+			}
+		}
+
+		// 重试配置
+		if retry, ok := apiProxy["retry"].(map[string]interface{}); ok {
+			if maxRetries, ok := retry["max_retries"].(float64); ok {
+				newConfig.ApiProxy.Retry.MaxRetries = int(maxRetries)
+			}
+			if retryDelay, ok := retry["retry_delay_ms"].(float64); ok {
+				newConfig.ApiProxy.Retry.RetryDelayMs = int(retryDelay)
+			}
+			if networkErrors, ok := retry["retry_on_network_errors"].(bool); ok {
+				newConfig.ApiProxy.Retry.RetryOnNetworkErrors = networkErrors
+			}
+			if statusCodes, ok := retry["retry_on_status_codes"].([]interface{}); ok {
+				codes := make([]int, 0, len(statusCodes))
+				for _, code := range statusCodes {
+					if c, ok := code.(float64); ok {
+						codes = append(codes, int(c))
+					}
+				}
+				newConfig.ApiProxy.Retry.RetryOnStatusCodes = codes
+			}
+		}
+	}
+
+	// 代理设置
+	if proxy, ok := configData["proxy"].(map[string]interface{}); ok {
+		if enabled, ok := proxy["enabled"].(bool); ok {
+			newConfig.Proxy.Enabled = enabled
+		}
+		if proxyType, ok := proxy["proxy_type"].(string); ok {
+			newConfig.Proxy.ProxyType = proxyType
+		}
+		if httpProxy, ok := proxy["http_proxy"].(string); ok {
+			newConfig.Proxy.HttpProxy = httpProxy
+		}
+		if httpsProxy, ok := proxy["https_proxy"].(string); ok {
+			newConfig.Proxy.HttpsProxy = httpsProxy
+		}
+		if socksProxy, ok := proxy["socks_proxy"].(string); ok {
+			newConfig.Proxy.SocksProxy = socksProxy
+		}
+	}
+
+	// 应用设置
+	if app, ok := configData["app"].(map[string]interface{}); ok {
+		if title, ok := app["title"].(string); ok {
+			newConfig.App.Title = title
+		}
+		if minBalance, ok := app["min_balance_threshold"].(float64); ok {
+			newConfig.App.MinBalanceThreshold = minBalance
+		}
+		if maxBalance, ok := app["max_balance_display"].(float64); ok {
+			newConfig.App.MaxBalanceDisplay = maxBalance
+		}
+		if itemsPerPage, ok := app["items_per_page"].(float64); ok {
+			newConfig.App.ItemsPerPage = int(itemsPerPage)
+		}
+		if maxStats, ok := app["max_stats_entries"].(float64); ok {
+			newConfig.App.MaxStatsEntries = int(maxStats)
+		}
+		if recoveryInterval, ok := app["recovery_interval"].(float64); ok {
+			newConfig.App.RecoveryInterval = int(recoveryInterval)
+		}
+		if maxFailures, ok := app["max_consecutive_failures"].(float64); ok {
+			newConfig.App.MaxConsecutiveFailures = int(maxFailures)
+		}
+		if hideIcon, ok := app["hide_icon"].(bool); ok {
+			newConfig.App.HideIcon = hideIcon
+		}
+
+		// 权重配置
+		if balanceWeight, ok := app["balance_weight"].(float64); ok {
+			newConfig.App.BalanceWeight = balanceWeight
+		}
+		if successRateWeight, ok := app["success_rate_weight"].(float64); ok {
+			newConfig.App.SuccessRateWeight = successRateWeight
+		}
+		if rpmWeight, ok := app["rpm_weight"].(float64); ok {
+			newConfig.App.RPMWeight = rpmWeight
+		}
+		if tpmWeight, ok := app["tpm_weight"].(float64); ok {
+			newConfig.App.TPMWeight = tpmWeight
+		}
+
+		// 自动更新配置
+		if autoUpdate, ok := app["auto_update_interval"].(float64); ok {
+			newConfig.App.AutoUpdateInterval = int(autoUpdate)
+		}
+		if statsRefresh, ok := app["stats_refresh_interval"].(float64); ok {
+			newConfig.App.StatsRefreshInterval = int(statsRefresh)
+		}
+		if rateRefresh, ok := app["rate_refresh_interval"].(float64); ok {
+			newConfig.App.RateRefreshInterval = int(rateRefresh)
+		}
+	}
+
+	// 日志设置
+	if log, ok := configData["log"].(map[string]interface{}); ok {
+		if maxSize, ok := log["max_size_mb"].(float64); ok {
+			newConfig.Log.MaxSizeMB = int(maxSize)
+		}
+		if level, ok := log["level"].(string); ok {
+			newConfig.Log.Level = level
+		}
+	}
+
+	// 更新配置
+	config.UpdateConfig(&newConfig)
+
+	// 保存到数据库
+	if err := config.SaveConfigToDB(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("保存配置到数据库失败: %v", err),
+		})
+		return
+	}
+
+	// 返回成功消息
+	c.JSON(http.StatusOK, gin.H{
+		"message": "配置保存成功",
+	})
+}
+
+// handleRefreshAllKeysBalance 处理刷新所有API密钥余额的请求
+func handleRefreshAllKeysBalance(c *gin.Context) {
+	// 使用新的ForceRefreshAllKeysBalance函数，该函数带有2秒超时
+	err := key.ForceRefreshAllKeysBalance()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("刷新API密钥余额失败: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "所有API密钥余额刷新成功",
+	})
+}
+
+// handleSystemRestart 处理系统重启请求
+func handleSystemRestart(c *gin.Context) {
+	// 返回成功消息
+	c.JSON(http.StatusOK, gin.H{
+		"message": "系统重启请求已接收，程序将在几秒钟内重启",
+	})
+
+	// 使用goroutine异步执行重启，以便先返回响应
+	go func() {
+		// 等待一小段时间确保响应已发送
+		time.Sleep(1 * time.Second)
+
+		// 导入cmd/flowsilicon/windows包中的函数会导致循环依赖
+		// 所以这里我们复制restartProgram的实现
+
+		execPath, err := os.Executable()
+		if err != nil {
+			logger.Error("获取当前程序路径失败: %v", err)
+			return
+		}
+
+		// 获取当前命令行参数，排除第一个(程序路径)
+		args := []string{}
+		if len(os.Args) > 1 {
+			args = os.Args[1:]
+		}
+
+		// 记录重启前的命令行参数
+		logger.Info("重启程序，当前命令行参数: %v", args)
+
+		// 创建新的进程
+		cmd := exec.Command(execPath, args...)
+
+		// 获取可执行文件所在目录
+		executableDir, err := filepath.Dir(execPath), nil
+		if err != nil {
+			logger.Error("获取可执行文件目录失败: %v", err)
+			return
+		}
+
+		// 设置工作目录
+		cmd.Dir = executableDir
+
+		// 传递所有当前环境变量
+		cmd.Env = os.Environ()
+
+		// 检查是否为GUI模式（Windows特定）
+		if runtime.GOOS == "windows" {
+			// 使用syscall.GetConsoleWindow来检测是否有控制台窗口
+			kernel32 := syscall.NewLazyDLL("kernel32.dll")
+			getConsoleWindow := kernel32.NewProc("GetConsoleWindow")
+			hwnd, _, _ := getConsoleWindow.Call()
+			isGui := hwnd == 0
+
+			if isGui {
+				logger.Info("以GUI模式重启程序")
+				// 在Windows上，使用特定的启动标志使窗口隐藏
+				cmd.SysProcAttr = &syscall.SysProcAttr{
+					HideWindow: true,
+				}
+			} else {
+				logger.Info("以控制台模式重启程序")
+			}
+		} else if runtime.GOOS == "linux" {
+			// Linux下的GUI模式判断，通过环境变量控制
+			guiMode := os.Getenv("FLOWSILICON_GUI")
+			if guiMode == "1" {
+				logger.Info("以GUI模式重启程序")
+				// 确保环境变量中包含GUI模式标记
+				hasGuiEnv := false
+				for i, e := range cmd.Env {
+					if strings.HasPrefix(e, "FLOWSILICON_GUI=") {
+						cmd.Env[i] = "FLOWSILICON_GUI=1"
+						hasGuiEnv = true
+						break
+					}
+				}
+				if !hasGuiEnv {
+					cmd.Env = append(cmd.Env, "FLOWSILICON_GUI=1")
+				}
+			} else {
+				logger.Info("以控制台模式重启程序")
+			}
+		}
+
+		// 启动新进程
+		err = cmd.Start()
+		if err != nil {
+			logger.Error("重启程序失败: %v", err)
+			return
+		}
+
+		logger.Info("新进程已启动，进程ID: %d，命令行参数: %v，工作目录: %s",
+			cmd.Process.Pid, args, executableDir)
+
+		// 设置退出标志
+		logger.Info("当前程序将在重启成功后退出")
+
+		// 如果使用了systray，需要通知退出
+		// 这部分在WEB API中可能无法直接访问systray变量
+		// 所以我们直接退出程序
+		os.Exit(0)
+	}()
+}
+
+// handleApiKeyProxy 处理API密钥获取的代理请求
+func handleApiKeyProxy(c *gin.Context) {
+	// 从请求中获取授权令牌
+	authToken := c.GetHeader("X-Auth-Token")
+	if authToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "未提供认证令牌",
+		})
+		return
+	}
+
+	// 构建目标URL
+	targetURL := "https://sili-api.killerbest.com/admin/api/keys"
+
+	// 创建一个新的HTTP请求
+	req, err := http.NewRequest("GET", targetURL, nil)
+	if err != nil {
+		logger.Error("创建HTTP请求失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("创建请求失败: %v", err),
+		})
+		return
+	}
+
+	// 添加授权头
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken))
+	req.Header.Set("Content-Type", "application/json")
+
+	// 创建HTTP客户端并发送请求
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Error("发送HTTP请求失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("请求失败: %v", err),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	// 读取响应内容
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Error("读取响应内容失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("读取响应失败: %v", err),
+		})
+		return
+	}
+
+	// 设置与原始响应相同的Content-Type
+	c.Header("Content-Type", resp.Header.Get("Content-Type"))
+
+	// 返回原始响应状态码和内容
+	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
 }

@@ -1,0 +1,51 @@
+/**
+ @author: AI
+ @since: 2025/3/23 22:30:16
+ @desc:
+ **/
+
+/* 页脚样式 */
+.footer {
+    padding: 40px 0 15px 0;
+    border-top: 3px solid #e5e5e5;
+    color: #777;
+    text-align: center;
+    width: 100%;
+    position: relative;
+}
+
+/* 添加页脚间距类，替代mt-auto */
+.footer-spacing {
+    margin-top: 100px !important; /* 使用!important覆盖其他潜在的样式 */
+}
+
+.footer::before {
+    content: "";
+    display: block;
+    height: 30px;
+    position: absolute;
+    top: -33px;
+    width: 100%;
+}
+
+.footer a {
+    color: #6c757d;
+    text-decoration: none;
+    transition: color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.footer a:hover {
+    color: #007bff;
+    text-decoration: underline;
+}
+
+.footer .bi-github {
+    font-size: 1.2rem;
+    margin-right: 5px;
+    line-height: 1;
+    position: relative;
+    top: -1px;
+} 

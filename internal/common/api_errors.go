@@ -1,6 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 22:31:00
+  @since: 2025/3/16 22:31:34
   @desc: 公共 API 错误处理
 **/
 
@@ -30,4 +30,4 @@ func NewApiError(message string, code int) error {
 }
 
 // ErrNoActiveKeys 没有可用的API密钥错误
-var ErrNoActiveKeys = NewApiError("no active API keys available", 500)
+var ErrNoActiveKeys = NewApiError("没有可用的API密钥", 500)

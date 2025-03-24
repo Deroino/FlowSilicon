@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .title }} - 设置</title>
+    <link rel="icon" href="/static-fs/img/favicon_32.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="/static-fs/img/favicon_32.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/static-fs/css/bootstrap.min.css" data-sourcemap="false">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static-fs/css/style.css">
+    <link rel="stylesheet" href="/static-fs/css/setting.css">
+    <link rel="stylesheet" href="/static-fs/css/footer.css">
+    <script src="/static-fs/js/bootstrap.bundle.min.js" data-sourcemap="false"></script>
+    <script src="/static-fs/js/setting.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title-container">
+                <img src="/static-fs/img/logo.png" alt="logo" class="logo">
+                <h1>{{ .title }}</h1>
+            </div>
+            <div class="d-flex justify-content-end mb-3">
+                <button id="save-settings" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-save"></i> 保存设置
+                </button>
+                <button id="restart-app" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-arrow-repeat"></i> 重启程序
+                </button>
+                <button id="reload-settings" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-arrow-clockwise"></i> 重新加载
+                </button>
+                <button id="back-to-home" class="btn btn-outline-secondary" type="button">
+                    <i class="bi bi-house"></i> 返回主页
+                </button>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5>系统设置</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="settings-form">
+                            
+                            <!-- 服务器设置 -->
+                            <div class="settings-section">
+                                <h5><i class="bi bi-hdd-rack"></i> 服务器设置</h5>
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle"></i> 需要重启程序后生效
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label for="server-port" class="form-label">服务器端口</label>
+                                        <input type="number" class="form-control" id="server-port" name="server.port">
+                                        <div class="form-text">Web服务器监听的端口号</div>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="log-max-size" class="form-label">日志文件最大大小(MB)</label>
+                                        <input type="number" class="form-control" id="log-max-size" name="log.max_size_mb">
+                                        <div class="form-text">日志文件达到此大小时将被清理</div>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="log-level" class="form-label">日志等级</label>
+                                        <select class="form-select" id="log-level" name="log.level">
+                                            <option value="debug">Debug (调试)</option>
+                                            <option value="info">Info (信息)</option>
+                                            <option value="warn">Warn (警告)</option>
+                                            <option value="error">Error (错误)</option>
+                                            <option value="fatal">Fatal (致命)</option>
+                                        </select>
+                                        <div class="form-text">控制记录哪些等级的日志信息</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 应用设置 -->
+                            <div class="settings-section">
+                                <h5><i class="bi bi-gear"></i> 应用设置</h5>
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle"></i> 超过最大连续失败次数后, 将禁用使用该密钥, 直到(恢复检查间隔)后恢复
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="app-title" class="form-label">应用标题</label>
+                                        <input type="text" class="form-control" id="app-title" name="app.title">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="min-balance" class="form-label">最低余额阈值</label>
+                                        <input type="number" class="form-control" id="min-balance" name="app.min_balance_threshold" step="0.1">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="max-balance" class="form-label">余额显示最大值</label>
+                                        <input type="number" class="form-control" id="max-balance" name="app.max_balance_display" step="0.1">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="items-per-page" class="form-label">每页显示密钥数量</label>
+                                        <input type="number" class="form-control" id="items-per-page" name="app.items_per_page">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="max-stats" class="form-label">统计数据时间范围（分钟）</label>
+                                        <input type="number" class="form-control" id="max-stats" name="app.max_stats_entries">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="recovery-interval" class="form-label">恢复检查间隔(分钟)</label>
+                                        <input type="number" class="form-control" id="recovery-interval" name="app.recovery_interval">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="max-failures" class="form-label">最大连续失败次数</label>
+                                        <input type="number" class="form-control" id="max-failures" name="app.max_consecutive_failures">
+                                    </div>
+                                </div>
+
+                                <!-- 权重配置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-calculator"></i> 密钥评分权重</h6>
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-info-circle"></i> 自定义分数, 来实现自定义轮询规则
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
+                                            <label for="balance-weight" class="form-label">余额权重</label>
+                                            <input type="number" class="form-control" id="balance-weight" name="app.balance_weight" step="0.05">
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="success-rate-weight" class="form-label">成功率权重</label>
+                                            <input type="number" class="form-control" id="success-rate-weight" name="app.success_rate_weight" step="0.05">
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="rpm-weight" class="form-label">RPM权重</label>
+                                            <input type="number" class="form-control" id="rpm-weight" name="app.rpm_weight" step="0.05">
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="tpm-weight" class="form-label">TPM权重</label>
+                                            <input type="number" class="form-control" id="tpm-weight" name="app.tpm_weight" step="0.05">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 自动更新配置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-arrow-repeat"></i> 自动更新配置</h6>
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="auto-update" class="form-label">API密钥状态自动更新间隔(秒)</label>
+                                            <input type="number" class="form-control" id="auto-update" name="app.auto_update_interval">
+                                            <div class="form-text">密钥余额、状态等信息的自动刷新频率</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="stats-refresh" class="form-label">系统概要自动刷新间隔(秒)</label>
+                                            <input type="number" class="form-control" id="stats-refresh" name="app.stats_refresh_interval">
+                                            <div class="form-text">首页系统概要面板的自动刷新频率</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="rate-refresh" class="form-label">速率监控自动刷新间隔(秒)</label>
+                                            <input type="number" class="form-control" id="rate-refresh" name="app.rate_refresh_interval">
+                                            <div class="form-text">RPM/TPM等速率指标的监控刷新频率</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- API代理设置 -->
+                            <div class="settings-section">
+                                <h5><i class="bi bi-diagram-3"></i> API代理设置</h5>
+                                <div class="row">
+                                    <div class="col-md-12 mb-3">
+                                        <label for="api-base-url" class="form-label">API基础URL</label>
+                                        <input type="text" class="form-control" id="api-base-url" name="api_proxy.base_url">
+                                        <div class="form-text">API请求的基础URL</div>
+                                    </div>
+                                </div>
+
+                                <!-- 重试配置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-arrow-repeat"></i> 重试配置</h6>
+                                    <div class="row">
+                                        <div class="col-md-12 mb-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="retry-network-errors" name="api_proxy.retry.retry_on_network_errors">
+                                                <label class="form-check-label" for="retry-network-errors">
+                                                    启用重试
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="max-retries" class="form-label">最大重试次数</label>
+                                            <input type="number" class="form-control" id="max-retries" name="api_proxy.retry.max_retries">
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="retry-delay" class="form-label">重试间隔(毫秒)</label>
+                                            <input type="number" class="form-control" id="retry-delay" name="api_proxy.retry.retry_delay_ms">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="retry-status-codes" class="form-label">重试状态码</label>
+                                            <input type="text" class="form-control" id="retry-status-codes" name="api_proxy.retry.retry_on_status_codes">
+                                            <div class="form-text">需要重试的HTTP状态码，用逗号分隔</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 模型特定策略配置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-diagram-2"></i> 模型特定密钥策略</h6>
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-info-circle"></i> 轮询思路(除普通轮询外): 得到最优 -> 找到同类 -> 轮询同类 -> 更新 -> 得到最优 -> 找到同类 -> 轮询同类 -> 更新 ...
+                                    </div>
+                                    
+                                    <!-- 策略说明 -->
+                                    <div class="mb-3 small text-muted">
+                                        <strong>策略说明：</strong>
+                                        <ul>
+                                            <li><strong>策略1 - 高成功率</strong>：优先选择成功率最高的密钥</li>
+                                            <li><strong>策略2 - 高分数</strong>：优先选择综合分数最高的密钥</li>
+                                            <li><strong>策略3 - 低RPM</strong>：优先选择每分钟请求数(RPM)最低的密钥</li>
+                                            <li><strong>策略4 - 低TPM</strong>：优先选择每分钟令牌数(TPM)最低的密钥</li>
+                                            <li><strong>策略5 - 高余额</strong>：优先选择余额最高的密钥</li>
+                                            <li><strong>策略6 - 普通</strong>：简单轮询所有可用的密钥（默认策略）</li>
+                                        </ul>
+                                    </div>
+                                    
+                                    <!-- 现有策略表格 -->
+                                    <div class="table-responsive mb-3">
+                                        <table class="table table-sm table-bordered table-hover" id="model-strategies-table">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>模型名称</th>
+                                                    <th>策略</th>
+                                                    <th>操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="model-strategies-body">
+                                                <!-- 会通过JavaScript动态填充 -->
+                                                <tr class="text-center text-muted">
+                                                    <td colspan="3">暂无特定模型策略配置</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <!-- 添加新策略 -->
+                                    <div class="row model-strategy-controls">
+                                        <div class="col-md-5 mb-2">
+                                            <select class="form-select" id="new-model-name">
+                                                <option value="">正在加载模型列表...</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-5 mb-2">
+                                            <select class="form-select" id="new-model-strategy">
+                                                <option value="1">策略1 - 高成功率</option>
+                                                <option value="2">策略2 - 高分数</option>
+                                                <option value="3">策略3 - 低RPM</option>
+                                                <option value="4">策略4 - 低TPM</option>
+                                                <option value="5">策略5 - 高余额</option>
+                                                <option value="6" selected>策略6 - 普通</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-2 mb-2">
+                                            <button type="button" class="btn btn-secondary w-100" id="add-model-strategy">添加</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 代理设置 -->
+                            <div class="settings-section">
+                                <h5><i class="bi bi-shield-lock"></i> 网络代理设置</h5>
+                                <div class="row">
+                                    <div class="col-md-12 mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="proxy-enabled" name="proxy.enabled">
+                                            <label class="form-check-label" for="proxy-enabled">
+                                                启用代理
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="proxy-type" class="form-label">代理类型</label>
+                                        <select class="form-select" id="proxy-type" name="proxy.proxy_type">
+                                            <option value="http">HTTP</option>
+                                            <option value="https">HTTPS</option>
+                                            <option value="socks5">SOCKS5</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="http-proxy" class="form-label">HTTP代理</label>
+                                        <input type="text" class="form-control" id="http-proxy" name="proxy.http_proxy">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="https-proxy" class="form-label">HTTPS代理</label>
+                                        <input type="text" class="form-control" id="https-proxy" name="proxy.https_proxy">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="socks-proxy" class="form-label">SOCKS5代理</label>
+                                        <input type="text" class="form-control" id="socks-proxy" name="proxy.socks_proxy">
+                                    </div>
+                                </div>
+                            </div>
+
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 页脚信息 -->
+    <footer class="footer footer-spacing py-3">
+        <div class="container text-center">
+            <p class="text-muted mb-0">@Hanhai 2025</p>
+            <p class="text-muted mb-0">
+                <a href="https://github.com/HanHai-Space/FlowSilicon" target="_blank" rel="noopener noreferrer">
+                    <i class="bi bi-github"></i> Github 仓库
+                </a>
+            </p>
+        </div>
+    </footer>
+
+    <!-- 添加Toast容器 -->
+    <div class="toast-container" id="toast-container"></div>
+</body>
+</html>

@@ -1,0 +1,345 @@
+/**
+ @author: AI
+ @since: 2025/3/23 22:30:16
+ @desc:
+ **/
+
+.settings-section {
+    margin-bottom: 30px;
+    padding: 15px;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+}
+
+.settings-section h5 {
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.settings-section .bi {
+    margin-right: 8px;
+}
+
+.subsection {
+    margin-top: 20px;
+    padding: 15px;
+    border-radius: 5px;
+    background-color: #ffffff;
+    border: 1px solid #e9ecef;
+}
+
+.subsection h6 {
+    margin-bottom: 15px;
+    color: #495057;
+}
+
+.navigation {
+    margin-bottom: 15px;
+}
+
+/* 输入框获取焦点时的样式 */
+.form-control:focus, .form-select:focus, .form-check-input:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Toast通知样式 */
+.toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    min-width: 300px;
+    z-index: 1000;
+    border-radius: 5px;
+    box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    background-color: #fff;
+    border-left: 5px solid #007bff;
+}
+
+.toast.show {
+    opacity: 1;
+}
+
+.toast-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    background-color: rgba(255, 255, 255, 0.85);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+}
+
+.toast-body {
+    padding: 0.75rem;
+}
+
+.toast-success {
+    border-left-color: #28a745;
+}
+
+.toast-error {
+    border-left-color: #dc3545;
+}
+
+.toast-info {
+    border-left-color: #17a2b8;
+}
+
+/* 自适应设计 */
+@media (max-width: 768px) {
+    .settings-section, .subsection {
+        padding: 10px;
+    }
+}
+
+/* 表单验证样式 */
+.invalid-feedback {
+    display: none;
+    color: #dc3545;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+}
+
+.was-validated .form-control:invalid {
+    border-color: #dc3545;
+}
+
+.was-validated .form-control:invalid + .invalid-feedback {
+    display: block;
+}
+
+/* 美化模型策略表格 */
+#model-strategies-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    margin-bottom: 20px;
+}
+
+#model-strategies-table thead {
+    background: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+}
+
+#model-strategies-table th {
+    color: #495057;
+    font-weight: 600;
+    text-align: left;
+    padding: 12px 15px;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: none;
+}
+
+#model-strategies-table tbody tr {
+    background-color: #fff;
+    transition: all 0.3s ease;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+#model-strategies-table tbody tr:hover {
+    background-color: #f6f9ff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+}
+
+#model-strategies-table td {
+    padding: 12px 15px;
+    vertical-align: middle;
+    border: none;
+    font-size: 14px;
+}
+
+#model-strategies-table td:first-child {
+    font-weight: 500;
+    color: #333;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#model-strategies-table td:nth-child(2) {
+    color: #4b6cb7;
+    font-weight: 500;
+}
+
+#model-strategies-table .text-center.text-muted {
+    padding: 30px 0;
+    background-color: #f9f9f9;
+    font-style: italic;
+    color: #999 !important;
+}
+
+/* 美化模型策略操作按钮 */
+#model-strategies-table .btn-sm {
+    border-radius: 4px;
+    font-weight: normal;
+    padding: 6px 12px;
+    transition: all 0.2s ease;
+    box-shadow: none;
+}
+
+#model-strategies-table .btn-primary {
+    background-color: #6c757d;
+    border-color: #6c757d;
+}
+
+#model-strategies-table .btn-primary:hover {
+    background-color: #5a6268;
+    border-color: #545b62;
+}
+
+#model-strategies-table .btn-danger {
+    background-color: #dc3545;
+    border-color: #dc3545;
+}
+
+#model-strategies-table .btn-danger:hover {
+    background-color: #c82333;
+    border-color: #bd2130;
+}
+
+/* 添加新策略部分的样式美化 */
+.model-strategy-controls {
+    background: #f9f9f9;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+/* 设置"保存修改"按钮样式 */
+.btn-save-modify {
+    font-size: 0.875rem;
+    padding: 0.375rem 0.75rem;
+    height: auto !important;
+}
+
+.model-strategy-controls .form-select {
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    padding: 10px 12px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+}
+
+.model-strategy-controls .form-select:focus {
+    border-color: #4b6cb7;
+    box-shadow: 0 0 0 3px rgba(75, 108, 183, 0.25);
+}
+
+.model-strategy-controls .searchable-dropdown {
+    margin-bottom: 0;
+}
+
+#model-search-input {
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    padding: 10px 12px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+}
+
+#model-search-input:focus {
+    border-color: #4b6cb7;
+    box-shadow: 0 0 0 3px rgba(75, 108, 183, 0.25);
+}
+
+.model-strategy-controls .dropdown-options {
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.model-strategy-controls .dropdown-item {
+    transition: all 0.2s ease;
+}
+
+.model-strategy-controls .dropdown-item:hover {
+    background-color: #f6f9ff !important;
+}
+
+#add-model-strategy {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    border-radius: 4px;
+    padding: 10px 15px;
+    font-weight: normal;
+    transition: all 0.3s ease;
+    height: 100%;
+    color: white;
+}
+
+#add-model-strategy:hover {
+    background-color: #5a6268;
+    border-color: #545b62;
+}
+
+/* 策略说明部分美化 */
+.subsection .small.text-muted {
+    background-color: #f6f9ff;
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 4px solid #4b6cb7;
+    margin-bottom: 20px;
+}
+
+.subsection .small.text-muted ul {
+    padding-left: 20px;
+    margin-bottom: 0;
+}
+
+.subsection .small.text-muted li {
+    margin-bottom: 5px;
+    line-height: 1.5;
+}
+
+.subsection .small.text-muted strong {
+    color: #4b6cb7;
+}
+
+.alert-info {
+    background-color: #e6f3ff;
+    border-color: #b8daff;
+    color: #004085;
+    border-radius: 8px;
+    padding: 12px 15px;
+    margin-bottom: 20px;
+}
+
+.alert-info i {
+    color: #007bff;
+    margin-right: 5px;
+}
+
+/* 改进搜索下拉菜单项的样式 */
+.dropdown-options .dropdown-item {
+    transition: all 0.2s ease;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.dropdown-options .dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.dropdown-options .dropdown-item:hover {
+    background-color: #f6f9ff !important;
+    transform: translateX(3px);
+}
+
+/* 自定义输入选项的样式 */
+.dropdown-options .dropdown-item[data-custom="true"] {
+    color: #4b6cb7;
+    font-style: italic;
+    font-weight: 500;
+    background-color: rgba(75, 108, 183, 0.05);
+}

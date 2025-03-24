@@ -10,7 +10,6 @@ import (
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/logger"
 	"strings"
-	"time"
 )
 
 // GetModelSpecificKey 根据模型名称获取特定的密钥
@@ -54,47 +53,27 @@ func applyModelStrategy(modelName string, strategyID int) (string, bool, error) 
 		return key, true, err
 	case 2: // 高分数策略
 		logger.Info("使用高分数策略选择密钥: 模型=%s", modelName)
-		key, err := GetOptimalApiKey()
+		key, err := GetOptimalApiKeyWithRoundRobin()
 		return key, true, err
 	case 3: // 低RPM策略
 		logger.Info("使用低RPM策略选择密钥: 模型=%s", modelName)
-		key, err := getFastResponseKey()
+		key, err := getLowRPMKey()
 		return key, true, err
 	case 4: // 低TPM策略
 		logger.Info("使用低TPM策略选择密钥: 模型=%s", modelName)
-		activeKeys := config.GetActiveApiKeys()
-		if len(activeKeys) == 0 {
-			return "", true, ErrNoActiveKeys
-		}
-
-		var bestKey string
-		var lowestTPM int = 999999
-
-		for _, key := range activeKeys {
-			if key.Balance < config.GetConfig().App.MinBalanceThreshold {
-				continue
-			}
-
-			if key.TokensPerMinute < lowestTPM {
-				lowestTPM = key.TokensPerMinute
-				bestKey = key.Key
-			}
-		}
-
-		if bestKey == "" {
-			key, err := getAnyAvailableKey()
-			return key, true, err
-		}
-
-		config.UpdateApiKeyLastUsed(bestKey, time.Now().Unix())
-		return bestKey, true, nil
+		key, err := getLowTPMKey()
+		return key, true, err
 	case 5: // 高余额策略
 		logger.Info("使用高余额策略选择密钥: 模型=%s", modelName)
 		key, err := getHighestBalanceKey()
 		return key, true, err
+	case 6: // 普通轮询策略
+		logger.Info("使用普通轮询策略选择密钥: 模型=%s", modelName)
+		key, err := getRoundRobinKey()
+		return key, true, err
 	default:
-		logger.Info("使用默认策略(高分数)选择密钥: 模型=%s", modelName)
-		key, err := GetOptimalApiKey()
+		logger.Info("使用默认策略(普通轮询)选择密钥: 模型=%s", modelName)
+		key, err := getRoundRobinKey()
 		return key, true, err
 	}
 }

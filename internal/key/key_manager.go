@@ -7,6 +7,7 @@
 package key
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -46,6 +47,9 @@ var (
 	currentMode  KeyMode = KeyModeAll
 	selectedKeys []string
 	modeMutex    sync.RWMutex
+
+	// cron调度器实例
+	cronScheduler *cron.Cron
 )
 
 // 初始化 HTTP 客户端
@@ -56,6 +60,7 @@ func init() {
 
 // StartKeyManager 启动 API 密钥管理器
 func StartKeyManager() {
+
 	// 从配置文件获取自动更新间隔
 	cfg := config.GetConfig()
 	checkInterval := cfg.App.AutoUpdateInterval
@@ -67,23 +72,35 @@ func StartKeyManager() {
 
 	// 将秒转换为分钟，因为cron表达式使用分钟
 	checkIntervalMinutes := checkInterval / 60
-	if checkIntervalMinutes < 1 {
-		checkIntervalMinutes = 1 // 最小1分钟
+	if checkIntervalMinutes < 60 {
+		checkIntervalMinutes = 60 // 最小1分钟
 	}
 
 	// 创建定时任务
-	c := cron.New()
+	cronScheduler = cron.New()
 
 	// 添加定时任务，每隔指定时间检查一次 API 密钥余额
 	spec := fmt.Sprintf("@every %dm", checkIntervalMinutes)
-	c.AddFunc(spec, checkAllKeysBalance)
+	cronScheduler.AddFunc(spec, checkAllKeysBalance)
 
 	// 添加定时任务，每隔 RecoveryInterval 分钟尝试恢复被禁用的密钥
 	recoverySpec := fmt.Sprintf("@every %dm", cfg.App.RecoveryInterval)
-	c.AddFunc(recoverySpec, tryRecoverDisabledKeys)
+	cronScheduler.AddFunc(recoverySpec, tryRecoverDisabledKeys)
+
+	// 添加定时任务，每小时刷新一次已使用过的API密钥余额
+	cronScheduler.AddFunc("@hourly", RefreshUsedKeysBalance)
 
 	// 启动定时任务
-	c.Start()
+	cronScheduler.Start()
+}
+
+// StopKeyManager 停止API密钥管理器
+func StopKeyManager() {
+	if cronScheduler != nil {
+		cronScheduler.Stop()
+		cronScheduler = nil
+		logger.Info("API密钥管理器已停止")
+	}
 }
 
 // checkAllKeysBalance 检查所有 API 密钥的余额
@@ -108,10 +125,10 @@ func checkAllKeysBalance() {
 
 			logger.Info("API密钥 %s 余额: %.2f", MaskKey(key.Key), balance)
 
-			// 如果余额为0，可以考虑移除该密钥
+			// 如果余额为0或负数，将其标记为删除
 			if balance <= 0 {
-				logger.Info("API密钥 %s 余额为0，移除该密钥", MaskKey(key.Key))
-				config.RemoveApiKey(key.Key)
+				logger.Info("API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
+				config.MarkApiKeyForDeletion(key.Key)
 				return
 			}
 
@@ -144,6 +161,9 @@ func checkAllKeysBalance() {
 		logger.Error("保存API密钥状态失败: %v", err)
 	}
 
+	// 从JSON中删除标记为删除的密钥
+	config.RemoveMarkedApiKeys()
+
 	// 重新排序 API 密钥（按照综合得分从高到低）
 	config.SortApiKeysByBalance()
 
@@ -151,7 +171,9 @@ func checkAllKeysBalance() {
 }
 
 // CheckKeyBalance 检查 API 密钥余额
+// TODO 等待优化
 func CheckKeyBalance(key string) (float64, error) {
+
 	// 使用硅基流动 API 的用户信息接口
 	userInfoURL := "https://api.siliconflow.cn/v1/user/info"
 
@@ -170,7 +192,7 @@ func CheckKeyBalance(key string) (float64, error) {
 	// 解析响应
 	var result SiliconFlowUserInfoResponse
 
-	if err := json.Unmarshal(resp.Body(), &result); err != nil {
+	if err = json.Unmarshal(resp.Body(), &result); err != nil {
 		return 0, fmt.Errorf("解析响应失败: %w", err)
 	}
 
@@ -184,8 +206,6 @@ func CheckKeyBalance(key string) (float64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("解析余额失败: %w", err)
 	}
-
-	// 不再记录余额信息
 
 	return balance, nil
 }
@@ -417,6 +437,7 @@ func tryRecoverDisabledKeys() {
 			}
 
 			// 测试成功，恢复密钥
+			// TODO 注释
 			logger.Info("恢复检查: API密钥 %s 测试成功，余额 %.2f 高于阈值 %.2f，恢复该密钥",
 				MaskKey(key.Key), balance, config.GetConfig().App.MinBalanceThreshold)
 
@@ -460,4 +481,217 @@ func UpdateApiKeyStatus(key string, success bool) {
 
 	// 重新排序密钥
 	config.SortApiKeysByPriority()
+}
+
+// ForceRefreshAllKeysBalance 强制刷新所有API密钥的余额
+// 在程序启动时调用，确保所有API密钥的余额都是最新的
+// 设置2秒超时限制，如果超时则报错
+func ForceRefreshAllKeysBalance() error {
+	keys := config.GetApiKeys()
+	logger.Info("启动时强制刷新 %d 个API密钥的余额", len(keys))
+
+	// 创建一个等待组，用于等待所有检查完成
+	var wg sync.WaitGroup
+
+	// 使用带超时的上下文，强制限制2秒超时
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// 创建一个通道用来通知完成
+	done := make(chan struct{})
+
+	// 记录错误信息
+	var refreshErr error
+	var errMu sync.Mutex
+
+	for i := range keys {
+		wg.Add(1)
+		go func(key config.ApiKey) {
+			defer wg.Done()
+
+			// 检查上下文是否已取消
+			select {
+			case <-ctx.Done():
+				errMu.Lock()
+				if refreshErr == nil {
+					refreshErr = fmt.Errorf("刷新余额太频繁了")
+				}
+				errMu.Unlock()
+				logger.Error("强制刷新: 检查API密钥 %s 时上下文已取消", MaskKey(key.Key))
+				return
+			default:
+				// 继续执行
+			}
+
+			// 检查余额
+			balance, err := CheckKeyBalance(key.Key)
+			if err != nil {
+				logger.Error("强制刷新: 检查API密钥 %s 余额失败: %v", MaskKey(key.Key), err)
+				return
+			}
+
+			logger.Info("强制刷新: API密钥 %s 余额: %.2f", MaskKey(key.Key), balance)
+
+			// 如果余额为0或负数，将其标记为删除
+			if balance <= 0 {
+				logger.Info("强制刷新: API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
+				config.MarkApiKeyForDeletion(key.Key)
+				return
+			}
+
+			// 如果余额低于阈值但状态为启用，禁用它
+			if balance < config.GetConfig().App.MinBalanceThreshold && !key.Disabled {
+				logger.Info("强制刷新: API密钥 %s 余额 %.2f 低于阈值 %.2f，禁用该密钥",
+					MaskKey(key.Key), balance, config.GetConfig().App.MinBalanceThreshold)
+				config.DisableApiKey(key.Key)
+				return
+			}
+
+			// 如果余额高于阈值但状态为禁用，启用它
+			if balance >= config.GetConfig().App.MinBalanceThreshold && key.Disabled {
+				logger.Info("强制刷新: API密钥 %s 余额 %.2f 高于阈值 %.2f，启用该密钥",
+					MaskKey(key.Key), balance, config.GetConfig().App.MinBalanceThreshold)
+				config.EnableApiKey(key.Key)
+				return
+			}
+
+			// 更新余额
+			config.UpdateApiKeyBalance(key.Key, balance)
+		}(keys[i])
+	}
+
+	// 在一个goroutine中等待所有检查完成
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// 等待完成或超时
+	select {
+	case <-done:
+		logger.Info("所有API密钥余额检查已完成")
+	case <-ctx.Done():
+		logger.Warn("API密钥余额检查超时，超过2秒限制")
+		if refreshErr == nil {
+			refreshErr = fmt.Errorf("刷新余额太频繁了")
+		}
+	}
+
+	// 保存更新后的密钥状态
+	if err := config.SaveApiKeys(); err != nil {
+		logger.Error("强制刷新: 保存API密钥状态失败: %v", err)
+		if refreshErr == nil {
+			refreshErr = err
+		}
+	} else {
+		logger.Info("强制刷新: 保存API密钥状态成功")
+	}
+
+	// 从JSON中删除标记为删除的密钥
+	config.RemoveMarkedApiKeys()
+
+	// 重新排序 API 密钥（按照综合得分从高到低）
+	config.SortApiKeysByBalance()
+
+	logger.Info("强制刷新API密钥余额完成")
+	return refreshErr
+}
+
+// RefreshUsedKeysBalance 刷新已使用过的API密钥的余额
+// 设置24小时过期时间，过期后会重置IsUsed标记为false
+func RefreshUsedKeysBalance() {
+	usedKeys := config.GetUsedApiKeys()
+	if len(usedKeys) == 0 {
+		logger.Info("没有使用过的API密钥需要刷新余额")
+		return
+	}
+
+	logger.Info("开始刷新 %d 个已使用过的API密钥的余额", len(usedKeys))
+
+	// 检查是否有超过24小时未使用的密钥
+	now := time.Now().Unix()
+	var keysToReset []string
+	var keysToRefresh []config.ApiKey
+
+	// 筛选出需要重置标记和需要刷新的密钥
+	for _, key := range usedKeys {
+		// 如果最后使用时间超过24小时，重置标记
+		if now-key.LastUsed > 24*60*60 {
+			keysToReset = append(keysToReset, key.Key)
+		} else {
+			keysToRefresh = append(keysToRefresh, key)
+		}
+	}
+
+	// 重置超过24小时未使用的密钥的标记
+	for _, keyStr := range keysToReset {
+		logger.Info("API密钥 %s 超过24小时未使用，重置使用标记", MaskKey(keyStr))
+		config.MarkApiKeyAsUnused(keyStr)
+	}
+
+	if len(keysToRefresh) == 0 {
+		logger.Info("没有需要刷新余额的已使用API密钥")
+		return
+	}
+
+	// 创建一个等待组，用于等待所有检查完成
+	var wg sync.WaitGroup
+
+	for i := range keysToRefresh {
+		wg.Add(1)
+		go func(key config.ApiKey) {
+			defer wg.Done()
+
+			// 检查余额
+			balance, err := CheckKeyBalance(key.Key)
+			if err != nil {
+				logger.Error("刷新已使用密钥: 检查API密钥 %s 余额失败: %v", MaskKey(key.Key), err)
+				return
+			}
+
+			logger.Info("刷新已使用密钥: API密钥 %s 余额: %.2f", MaskKey(key.Key), balance)
+
+			// 如果余额为0或负数，将其标记为删除
+			if balance <= 0 {
+				logger.Info("刷新已使用密钥: API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
+				config.MarkApiKeyForDeletion(key.Key)
+				return
+			}
+
+			// 如果余额低于阈值但状态为启用，禁用它
+			if balance < config.GetConfig().App.MinBalanceThreshold && !key.Disabled {
+				logger.Info("刷新已使用密钥: API密钥 %s 余额 %.2f 低于阈值 %.2f，禁用该密钥",
+					MaskKey(key.Key), balance, config.GetConfig().App.MinBalanceThreshold)
+				config.DisableApiKey(key.Key)
+				return
+			}
+
+			// 如果余额高于阈值但状态为禁用，启用它
+			if balance >= config.GetConfig().App.MinBalanceThreshold && key.Disabled {
+				logger.Info("刷新已使用密钥: API密钥 %s 余额 %.2f 高于阈值 %.2f，启用该密钥",
+					MaskKey(key.Key), balance, config.GetConfig().App.MinBalanceThreshold)
+				config.EnableApiKey(key.Key)
+				return
+			}
+
+			// 更新余额
+			config.UpdateApiKeyBalance(key.Key, balance)
+		}(keysToRefresh[i])
+	}
+
+	// 等待所有检查完成
+	wg.Wait()
+
+	// 保存更新后的密钥状态
+	if err := config.SaveApiKeys(); err != nil {
+		logger.Error("刷新已使用密钥: 保存API密钥状态失败: %v", err)
+	}
+
+	// 从JSON中删除标记为删除的密钥
+	config.RemoveMarkedApiKeys()
+
+	// 重新排序 API 密钥（按照综合得分从高到低）
+	config.SortApiKeysByBalance()
+
+	logger.Info("已使用API密钥余额刷新完成")
 }

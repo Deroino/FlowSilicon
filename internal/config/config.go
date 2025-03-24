@@ -7,15 +7,28 @@
 package config
 
 import (
-	"encoding/json"
 	"flowsilicon/internal/logger"
+	"fmt"
 	"log"
-	"os"
-	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+)
 
-	"github.com/spf13/viper"
+var (
+	config     *Config
+	configOnce sync.Once
+	apiKeys    []ApiKey
+	keysMutex  sync.RWMutex
+
+	// 请求统计相关
+	requestStats []RequestStats // 保存最近的请求统计数据
+	statsLock    sync.RWMutex   // 用于保护requestStats
+
+	// 当天累计数据
+	dailyRequestCount int       // 当天累计请求数
+	dailyTokenCount   int       // 当天累计令牌数
+	lastResetDay      time.Time // 上次重置日期
 )
 
 // Config 应用配置结构
@@ -50,7 +63,7 @@ type Config struct {
 		TPMWeight         float64 `mapstructure:"tpm_weight"`          // TPM评分权重
 		// 自动更新配置
 		AutoUpdateInterval   int `mapstructure:"auto_update_interval"`   // API密钥信息自动更新间隔（秒）
-		StatsRefreshInterval int `mapstructure:"stats_refresh_interval"` // 统计信息自动刷新间隔（秒）
+		StatsRefreshInterval int `mapstructure:"stats_refresh_interval"` // 系统概要自动刷新间隔（秒）
 		RateRefreshInterval  int `mapstructure:"rate_refresh_interval"`  // 速率监控自动刷新间隔（秒）
 		// 模型特定的密钥选择策略
 		ModelKeyStrategies map[string]int `mapstructure:"model_key_strategies"` // 模型特定的密钥选择策略
@@ -58,7 +71,8 @@ type Config struct {
 		HideIcon bool `mapstructure:"hide_icon"` // 是否隐藏系统托盘图标
 	} `mapstructure:"app"`
 	Log struct {
-		MaxSizeMB int `mapstructure:"max_size_mb"` // 日志文件最大大小（MB）
+		MaxSizeMB int    `mapstructure:"max_size_mb"` // 日志文件最大大小（MB）
+		Level     string `mapstructure:"level"`       // 日志等级（debug, info, warn, error, fatal）
 	} `mapstructure:"log"`
 }
 
@@ -81,6 +95,10 @@ type ApiKey struct {
 	RecentRequests    []RequestStats `json:"-"`   // 最近的请求统计，不序列化
 	// 新增得分字段
 	Score float64 `json:"score"` // 综合得分
+	// 新增删除标记字段
+	Delete bool `json:"delete"` // 是否标记为删除
+	// 新增使用标记字段
+	IsUsed bool `json:"is_used"` // 是否被使用过
 }
 
 // RequestStats 请求统计结构
@@ -88,63 +106,6 @@ type RequestStats struct {
 	Timestamp    int64 `json:"timestamp"`     // 时间戳
 	RequestCount int   `json:"request_count"` // 请求数
 	TokenCount   int   `json:"token_count"`   // 令牌数
-}
-
-var (
-	config     *Config
-	configOnce sync.Once
-	apiKeys    []ApiKey
-	keysMutex  sync.RWMutex
-
-	// 请求统计相关
-	requestStats []RequestStats // 保存最近的请求统计数据
-	statsLock    sync.RWMutex   // 用于保护requestStats
-
-	// 当天累计数据
-	dailyRequestCount int       // 当天累计请求数
-	dailyTokenCount   int       // 当天累计令牌数
-	lastResetDay      time.Time // 上次重置日期
-
-	apiKeysFile string // 用于存储API密钥文件路径的变量
-)
-
-// LoadConfig 加载配置文件
-func LoadConfig(configPath string) (*Config, error) {
-	var err error
-	configOnce.Do(func() {
-		viper.SetConfigFile(configPath)
-		viper.SetConfigType("yaml")
-		viper.AutomaticEnv()
-
-		if err = viper.ReadInConfig(); err != nil {
-			log.Printf("Error reading config file: %s", err)
-			return
-		}
-
-		config = &Config{}
-		if err = viper.Unmarshal(config); err != nil {
-			log.Printf("Unable to decode config into struct: %v", err)
-			return
-		}
-
-		// 添加配置值日志
-		log.Printf("配置加载成功 - AutoUpdateInterval: %d, StatsRefreshInterval: %d, RateRefreshInterval: %d",
-			config.App.AutoUpdateInterval,
-			config.App.StatsRefreshInterval,
-			config.App.RateRefreshInterval)
-
-		// 初始化lastResetDay为今天的开始时间
-		now := time.Now()
-		lastResetDay = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-
-		// 统一模型名称的大小写处理
-		standardizeModelKeyStrategies()
-
-		// 加载成功后初始化API密钥
-		LoadApiKeys()
-	})
-
-	return config, err
 }
 
 // standardizeModelKeyStrategies 统一模型名称的大小写处理
@@ -170,55 +131,7 @@ func standardizeModelKeyStrategies() {
 
 // GetConfig 获取配置
 func GetConfig() *Config {
-	if config == nil {
-		// 创建一个默认配置而不是调用Fatal
-		config = &Config{}
-		config.Server.Port = 8080                              // 默认端口
-		config.ApiProxy.BaseURL = "https://api.siliconflow.cn" // 默认API基础URL
-		config.ApiProxy.ModelIndex = 0                         // 默认模型索引
 
-		// 设置默认的重试配置
-		config.ApiProxy.Retry.MaxRetries = 1                                 // 默认最大重试次数
-		config.ApiProxy.Retry.RetryDelayMs = 1000                            // 默认重试间隔为1秒
-		config.ApiProxy.Retry.RetryOnStatusCodes = []int{500, 502, 503, 504} // 默认重试的HTTP状态码
-		config.ApiProxy.Retry.RetryOnNetworkErrors = true                    // 默认对网络错误进行重试
-
-		// 设置代理默认值
-		config.Proxy.HttpProxy = ""  // 默认不使用HTTP代理
-		config.Proxy.HttpsProxy = "" // 默认不使用HTTPS代理
-		config.Proxy.SocksProxy = "" // 默认不使用SOCKS5代理
-		config.Proxy.ProxyType = ""  // 默认代理类型为空
-		config.Proxy.Enabled = false // 默认不启用代理
-
-		// 应用默认配置
-		config.App.Title = "API 密钥管理系统"       // 默认标题
-		config.App.MinBalanceThreshold = 1.8  // 默认最低余额阈值
-		config.App.MaxBalanceDisplay = 14.0   // 默认余额显示最大值
-		config.App.ItemsPerPage = 5           // 默认每页显示的密钥数量
-		config.App.MaxStatsEntries = 60       // 默认最大统计条目数
-		config.App.RecoveryInterval = 10      // 默认恢复检查间隔（分钟）
-		config.App.MaxConsecutiveFailures = 5 // 默认最大连续失败次数
-		config.App.HideIcon = false           // 默认不隐藏系统托盘图标
-
-		// 设置默认权重
-		config.App.BalanceWeight = 0.4     // 默认余额权重
-		config.App.SuccessRateWeight = 0.3 // 默认成功率权重
-		config.App.RPMWeight = 0.15        // 默认RPM权重
-		config.App.TPMWeight = 0.15        // 默认TPM权重
-
-		// 设置默认刷新间隔
-		config.App.AutoUpdateInterval = 300  // 默认API密钥信息自动更新间隔（5分钟）
-		config.App.StatsRefreshInterval = 30 // 默认统计信息自动刷新间隔（30秒）
-		config.App.RateRefreshInterval = 10  // 默认速率监控自动刷新间隔（10秒）
-
-		// 设置日志配置默认值
-		config.Log.MaxSizeMB = 10 // 默认日志文件最大大小为10MB
-
-		// 初始化模型特定的密钥选择策略
-		config.App.ModelKeyStrategies = make(map[string]int)
-		// 设置默认的模型特定策略
-		config.App.ModelKeyStrategies["deepseek-ai/DeepSeek-V3"] = 1 // 高成功率策略
-	}
 	return config
 }
 
@@ -227,114 +140,29 @@ func GetApiKeys() []ApiKey {
 	keysMutex.RLock()
 	defer keysMutex.RUnlock()
 
+	// 过滤掉标记为删除的密钥
+	filteredKeys := make([]ApiKey, 0, len(apiKeys))
+	for _, key := range apiKeys {
+		if !key.Delete {
+			filteredKeys = append(filteredKeys, key)
+		}
+	}
+
 	// 返回副本以避免外部修改
-	keysCopy := make([]ApiKey, len(apiKeys))
-	copy(keysCopy, apiKeys)
+	keysCopy := make([]ApiKey, len(filteredKeys))
+	copy(keysCopy, filteredKeys)
 	return keysCopy
 }
 
-// SetApiKeysFile 设置API密钥文件路径
-func SetApiKeysFile(path string) {
-	keysMutex.Lock()
-	defer keysMutex.Unlock()
-	apiKeysFile = path
-	log.Printf("设置API密钥文件路径: %s", apiKeysFile)
-}
-
-// LoadApiKeys 从文件加载API密钥
-func LoadApiKeys() error {
-	// 如果apiKeysFile未设置，使用默认路径
-	if apiKeysFile == "" {
-		apiKeysFile = "data/api_keys.json"
-		log.Printf("使用默认API密钥文件路径: %s", apiKeysFile)
+// MaskKey 遮盖API密钥，只显示前4位和后4位
+func MaskKey(key string) string {
+	if len(key) <= 8 {
+		return key // 密钥太短，返回原样
 	}
 
-	// 检查文件是否存在
-	if _, err := os.Stat(apiKeysFile); os.IsNotExist(err) {
-		log.Printf("API密钥文件不存在，将使用空列表")
-		apiKeys = make([]ApiKey, 0)
-		return nil
-	}
-
-	// 读取文件
-	data, err := os.ReadFile(apiKeysFile)
-	if err != nil {
-		log.Printf("读取API密钥文件失败: %v", err)
-		apiKeys = make([]ApiKey, 0)
-		return err
-	}
-
-	// 解析JSON
-	keysMutex.Lock()
-	defer keysMutex.Unlock()
-
-	if err := json.Unmarshal(data, &apiKeys); err != nil {
-		log.Printf("解析API密钥文件失败: %v", err)
-		apiKeys = make([]ApiKey, 0)
-		return err
-	}
-
-	// 确保所有密钥的RPM和TPM初始化为0，并初始化RecentRequests数组
-	for i := range apiKeys {
-		apiKeys[i].RequestsPerMinute = 0
-		apiKeys[i].TokensPerMinute = 0
-		apiKeys[i].RecentRequests = make([]RequestStats, 0)
-	}
-
-	// 检查并禁用低余额密钥，启用高余额密钥
-	keysUpdated := false
-	for i := range apiKeys {
-		if apiKeys[i].Balance < config.App.MinBalanceThreshold {
-			// 只有余额小于阈值的密钥才会被禁用
-			if !apiKeys[i].Disabled {
-				apiKeys[i].Disabled = true
-				apiKeys[i].DisabledAt = time.Now().Unix()
-				keysUpdated = true
-				log.Printf("API密钥 %s 余额 %.2f 低于阈值 %.2f，已自动禁用",
-					apiKeys[i].Key, apiKeys[i].Balance, config.App.MinBalanceThreshold)
-			}
-		} else {
-			// 余额充足的密钥确保是启用状态
-			if apiKeys[i].Disabled {
-				apiKeys[i].Disabled = false
-				apiKeys[i].DisabledAt = 0
-				keysUpdated = true
-				log.Printf("API密钥 %s 余额 %.2f 高于阈值 %.2f，已自动启用",
-					apiKeys[i].Key, apiKeys[i].Balance, config.App.MinBalanceThreshold)
-			}
-		}
-	}
-
-	// 如果有密钥状态被更新，保存到文件
-	if keysUpdated {
-		if err := SaveApiKeysWithLock(false); err != nil {
-			log.Printf("保存更新后的API密钥状态失败: %v", err)
-		}
-	}
-
-	log.Printf("成功加载 %d 个API密钥", len(apiKeys))
-	return nil
-}
-
-// UpdateApiKeys 更新API密钥列表
-func UpdateApiKeys(keys []ApiKey) {
-	keysMutex.Lock()
-	defer keysMutex.Unlock()
-
-	// 检查每个密钥的余额并设置禁用状态
-	for i := range keys {
-		if keys[i].Balance < config.App.MinBalanceThreshold {
-			keys[i].Disabled = true
-			keys[i].DisabledAt = time.Now().Unix()
-			log.Printf("API密钥 %s 余额 %.2f 低于阈值 %.2f，已自动禁用",
-				keys[i].Key, keys[i].Balance, config.App.MinBalanceThreshold)
-		} else {
-			keys[i].Disabled = false
-			keys[i].DisabledAt = 0
-		}
-	}
-
-	apiKeys = keys
+	prefix := key[:4]
+	suffix := key[len(key)-4:]
+	return prefix + "..." + suffix
 }
 
 // AddApiKey 添加新的API密钥
@@ -357,6 +185,11 @@ func AddApiKey(key string, balance float64) {
 				apiKeys[i].Disabled = false
 				apiKeys[i].DisabledAt = 0
 			}
+
+			// 保存更新到数据库
+			if err := AddApiKeyToDB(apiKeys[i]); err != nil {
+				logger.Error("保存API密钥到数据库失败: %v", err)
+			}
 			return
 		}
 	}
@@ -376,17 +209,41 @@ func AddApiKey(key string, balance float64) {
 	}
 
 	apiKeys = append(apiKeys, newKey)
+
+	// 保存新密钥到数据库
+	if err := AddApiKeyToDB(newKey); err != nil {
+		logger.Error("添加API密钥到数据库失败: %v", err)
+	}
 }
 
-// RemoveApiKey 删除API密钥
-func RemoveApiKey(key string) bool {
+// UpdateApiKeyBalance 更新 API 密钥余额
+func UpdateApiKeyBalance(key string, balance float64) bool {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
 
 	for i, k := range apiKeys {
 		if k.Key == key {
-			// 从切片中删除元素
-			apiKeys = append(apiKeys[:i], apiKeys[i+1:]...)
+			// 更新余额
+			apiKeys[i].Balance = balance
+
+			// 如果余额低于余额阈值且密钥未禁用，则禁用密钥
+			if balance < config.App.MinBalanceThreshold && !k.Disabled {
+				apiKeys[i].Disabled = true
+				apiKeys[i].DisabledAt = time.Now().Unix()
+				log.Printf("API密钥 %s 余额低于阈值 %.2f，已自动禁用", MaskKey(key), config.App.MinBalanceThreshold)
+			} else if balance >= config.App.MinBalanceThreshold && k.Disabled && k.DisabledAt == 0 {
+				// 如果余额充足且密钥是禁用的（但不是手动禁用的），则启用密钥
+				apiKeys[i].Disabled = false
+				log.Printf("API密钥 %s 余额已恢复到阈值 %.2f 以上，已自动启用", MaskKey(key), config.App.MinBalanceThreshold)
+			}
+
+			// 保存更新到数据库
+			keyCopy := apiKeys[i]
+			keyCopy.RecentRequests = nil // 清空不需要保存的字段
+			if err := AddApiKeyToDB(keyCopy); err != nil {
+				logger.Error("更新API密钥余额到数据库失败: %v", err)
+			}
+
 			return true
 		}
 	}
@@ -394,36 +251,21 @@ func RemoveApiKey(key string) bool {
 	return false
 }
 
-// UpdateApiKeyBalance 更新API密钥余额并自动禁用低余额密钥
-func UpdateApiKeyBalance(key string, balance float64) bool {
+// UpdateApiKeyLastUsed 更新 API 密钥最后使用时间
+func UpdateApiKeyLastUsed(key string, timestamp int64) bool {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
 
 	for i, k := range apiKeys {
 		if k.Key == key {
-			apiKeys[i].Balance = balance
-			statusChanged := false
+			apiKeys[i].LastUsed = timestamp
 
-			// 只在余额低于阈值时禁用密钥
-			if balance < config.App.MinBalanceThreshold && !k.Disabled {
-				apiKeys[i].Disabled = true
-				apiKeys[i].DisabledAt = time.Now().Unix()
-				statusChanged = true
-				log.Printf("API密钥 %s 余额更新为 %.2f，低于阈值 %.2f，已自动禁用",
-					key, balance, config.App.MinBalanceThreshold)
-			} else if balance >= config.App.MinBalanceThreshold && k.Disabled {
-				// 余额充足时确保密钥是启用状态
-				apiKeys[i].Disabled = false
-				apiKeys[i].DisabledAt = 0
-				statusChanged = true
-				log.Printf("API密钥 %s 余额更新为 %.2f，高于阈值 %.2f，已自动启用",
-					key, balance, config.App.MinBalanceThreshold)
-			}
-
-			// 如果状态发生变化，保存到文件
-			if statusChanged {
-				if err := SaveApiKeysWithLock(false); err != nil {
-					log.Printf("保存更新后的API密钥状态失败: %v", err)
+			// 保存更新到数据库
+			if db != nil {
+				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
+					SET last_used = ? WHERE key = ?`, timestamp, key)
+				if err != nil {
+					logger.Error("更新API密钥最后使用时间到数据库失败: %v", err)
 				}
 			}
 
@@ -434,18 +276,27 @@ func UpdateApiKeyBalance(key string, balance float64) bool {
 	return false
 }
 
-// UpdateApiKeyLastUsed 更新API密钥最后使用时间
-func UpdateApiKeyLastUsed(key string, timestamp int64) bool {
+// MarkApiKeyAsUsed 标记 API 密钥为已使用
+func MarkApiKeyAsUsed(key string) bool {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
 
 	for i, k := range apiKeys {
 		if k.Key == key {
-			apiKeys[i].LastUsed = timestamp
+			apiKeys[i].IsUsed = true
+
+			// 保存更新到数据库
+			if db != nil {
+				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
+					SET is_used = ? WHERE key = ?`, true, key)
+				if err != nil {
+					logger.Error("更新API密钥使用状态到数据库失败: %v", err)
+				}
+			}
+
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -587,14 +438,14 @@ func calculateScore(key ApiKey) float64 {
 
 	//TODO 注释日志
 	//记录日志，便于调试
-	log.Printf("API密钥 %s 余额=%.2f(%.2f), 成功率=%.2f(%.2f), RPM=%d(%.2f), TPM=%d(%.2f), 总分=%.2f",
-		key.Key[:6]+"******", key.Balance, balanceScore, key.SuccessRate, successRateScore,
-		key.RequestsPerMinute, rpmScore, key.TokensPerMinute, tpmScore, totalScore)
+	// log.Printf("API密钥 %s 余额=%.2f(%.2f), 成功率=%.2f(%.2f), RPM=%d(%.2f), TPM=%d(%.2f), 总分=%.2f",
+	// 	key.Key[:6]+"******", key.Balance, balanceScore, key.SuccessRate, successRateScore,
+	// 	key.RequestsPerMinute, rpmScore, key.TokensPerMinute, tpmScore, totalScore)
 
 	return totalScore
 }
 
-// UpdateApiKeySuccess 更新API密钥成功调用记录
+// UpdateApiKeySuccess 更新API密钥成功调用统计
 func UpdateApiKeySuccess(key string) bool {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
@@ -603,8 +454,20 @@ func UpdateApiKeySuccess(key string) bool {
 		if k.Key == key {
 			apiKeys[i].TotalCalls++
 			apiKeys[i].SuccessCalls++
-			apiKeys[i].ConsecutiveFailures = 0
 			apiKeys[i].SuccessRate = float64(apiKeys[i].SuccessCalls) / float64(apiKeys[i].TotalCalls)
+			apiKeys[i].ConsecutiveFailures = 0
+
+			// 保存更新到数据库
+			if db != nil {
+				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
+					SET total_calls = ?, success_calls = ?, success_rate = ?, consecutive_failures = ? 
+					WHERE key = ?`,
+					apiKeys[i].TotalCalls, apiKeys[i].SuccessCalls, apiKeys[i].SuccessRate, 0, key)
+				if err != nil {
+					logger.Error("更新API密钥成功调用统计到数据库失败: %v", err)
+				}
+			}
+
 			return true
 		}
 	}
@@ -612,7 +475,7 @@ func UpdateApiKeySuccess(key string) bool {
 	return false
 }
 
-// UpdateApiKeyFailure 更新API密钥失败调用记录
+// UpdateApiKeyFailure 更新API密钥失败调用统计
 func UpdateApiKeyFailure(key string) bool {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
@@ -620,8 +483,20 @@ func UpdateApiKeyFailure(key string) bool {
 	for i, k := range apiKeys {
 		if k.Key == key {
 			apiKeys[i].TotalCalls++
-			apiKeys[i].ConsecutiveFailures++
 			apiKeys[i].SuccessRate = float64(apiKeys[i].SuccessCalls) / float64(apiKeys[i].TotalCalls)
+			apiKeys[i].ConsecutiveFailures++
+
+			// 保存更新到数据库
+			if db != nil {
+				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
+					SET total_calls = ?, success_rate = ?, consecutive_failures = ? 
+					WHERE key = ?`,
+					apiKeys[i].TotalCalls, apiKeys[i].SuccessRate, apiKeys[i].ConsecutiveFailures, key)
+				if err != nil {
+					logger.Error("更新API密钥失败调用统计到数据库失败: %v", err)
+				}
+			}
+
 			return true
 		}
 	}
@@ -632,63 +507,116 @@ func UpdateApiKeyFailure(key string) bool {
 // DisableApiKey 禁用API密钥
 func DisableApiKey(key string) bool {
 	keysMutex.Lock()
-	defer keysMutex.Unlock()
 
+	var keyFound bool
+	var keyDisabledAt int64
+
+	// 先查找密钥并更新状态，但不保存
 	for i, k := range apiKeys {
 		if k.Key == key {
 			// 如果已经禁用，不需要再做操作
 			if k.Disabled {
+				keysMutex.Unlock()
 				return true
 			}
 
+			keyFound = true
+			keyDisabledAt = time.Now().Unix()
+
+			// 更新内存中的状态
 			apiKeys[i].Disabled = true
-			apiKeys[i].DisabledAt = time.Now().Unix()
-
-			// 保存更新到文件
-			if err := SaveApiKeysWithLock(false); err != nil {
-				log.Printf("保存API密钥状态失败: %v", err)
-			}
-
-			return true
+			apiKeys[i].DisabledAt = keyDisabledAt
+			break
 		}
 	}
 
-	return false
+	// 如果没找到密钥，直接返回
+	if !keyFound {
+		keysMutex.Unlock()
+		return false
+	}
+
+	// 释放锁后再保存到数据库
+	keysMutex.Unlock()
+
+	// 保存更新到数据库
+	if db != nil {
+		_, err := db.Exec(`UPDATE `+apikeysTableName+` 
+			SET disabled = ?, disabled_at = ? 
+			WHERE key = ?`,
+			true, keyDisabledAt, key)
+		if err != nil {
+			logger.Error("更新API密钥禁用状态到数据库失败: %v", err)
+		} else {
+			logger.Info("已更新API密钥禁用状态到数据库: %s", MaskKey(key))
+		}
+	}
+
+	return true
 }
 
 // EnableApiKey 启用API密钥
 func EnableApiKey(key string) bool {
 	keysMutex.Lock()
-	defer keysMutex.Unlock()
 
+	var keyFound bool
+	var minThreshold float64
+
+	// 首先获取阈值
+	if config != nil {
+		minThreshold = config.App.MinBalanceThreshold
+	}
+
+	// 查找密钥并检查状态
 	for i, k := range apiKeys {
 		if k.Key == key {
+			keyFound = true
+
 			// 如果余额不足，不允许启用
-			if k.Balance < config.App.MinBalanceThreshold {
-				log.Printf("无法启用API密钥 %s：余额 %.2f 低于阈值 %.2f",
-					key, k.Balance, config.App.MinBalanceThreshold)
+			if k.Balance < minThreshold {
+				logger.Error("无法启用API密钥 %s：余额 %.2f 低于阈值 %.2f",
+					MaskKey(key), k.Balance, minThreshold)
+				keysMutex.Unlock()
 				return false
 			}
 
 			// 如果已经启用，不需要再做操作
 			if !k.Disabled {
+				keysMutex.Unlock()
 				return true
 			}
 
+			// 更新内存中的状态
 			apiKeys[i].Disabled = false
 			apiKeys[i].DisabledAt = 0
 			apiKeys[i].ConsecutiveFailures = 0
-
-			// 保存更新到文件
-			if err := SaveApiKeysWithLock(false); err != nil {
-				log.Printf("保存API密钥状态失败: %v", err)
-			}
-
-			return true
+			break
 		}
 	}
 
-	return false
+	// 如果没找到密钥，直接返回
+	if !keyFound {
+		keysMutex.Unlock()
+		return false
+	}
+
+	// 释放锁后再保存到数据库
+	keysMutex.Unlock()
+
+	// 保存更新到数据库
+	if db != nil {
+		_, err := db.Exec(`UPDATE `+apikeysTableName+` 
+			SET disabled = ?, disabled_at = ?, consecutive_failures = ? 
+			WHERE key = ?`,
+			false, 0, 0, key)
+		if err != nil {
+			logger.Error("更新API密钥启用状态到数据库失败: %v", err)
+		} else {
+			logger.Info("已更新API密钥启用状态到数据库: %s", MaskKey(key))
+		}
+	}
+
+	return true
 }
 
 // UpdateApiKeyLastTested 更新API密钥最后测试时间
@@ -870,38 +798,32 @@ func SortApiKeysByPriority() {
 
 // GetActiveApiKeys 获取所有未禁用且余额充足的API密钥
 func GetActiveApiKeys() []ApiKey {
-	keysMutex.RLock()
-	defer keysMutex.RUnlock()
+	allKeys := GetApiKeys() // 已经过滤掉标记为删除的密钥
 
+	// 筛选出未禁用且余额充足的密钥
 	var activeKeys []ApiKey
-	for _, k := range apiKeys {
-		if !k.Disabled && k.Balance >= config.App.MinBalanceThreshold {
-			activeKeys = append(activeKeys, k)
+	for _, key := range allKeys {
+		if !key.Disabled && key.Balance >= config.App.MinBalanceThreshold {
+			activeKeys = append(activeKeys, key)
 		}
 	}
 
-	// 返回副本以避免外部修改
-	keysCopy := make([]ApiKey, len(activeKeys))
-	copy(keysCopy, activeKeys)
-	return keysCopy
+	return activeKeys
 }
 
-// GetDisabledApiKeys 获取所有已禁用的API密钥
+// GetDisabledApiKeys 获取所有禁用的API密钥
 func GetDisabledApiKeys() []ApiKey {
-	keysMutex.RLock()
-	defer keysMutex.RUnlock()
+	allKeys := GetApiKeys() // 已经过滤掉标记为删除的密钥
 
+	// 筛选出已禁用的密钥
 	var disabledKeys []ApiKey
-	for _, k := range apiKeys {
-		if k.Disabled {
-			disabledKeys = append(disabledKeys, k)
+	for _, key := range allKeys {
+		if key.Disabled {
+			disabledKeys = append(disabledKeys, key)
 		}
 	}
 
-	// 返回副本以避免外部修改
-	keysCopy := make([]ApiKey, len(disabledKeys))
-	copy(keysCopy, disabledKeys)
-	return keysCopy
+	return disabledKeys
 }
 
 // AddRequestStat 添加请求统计数据
@@ -949,75 +871,6 @@ func isSameDay(t1, t2 time.Time) bool {
 	return t1.Year() == t2.Year() && t1.Month() == t2.Month() && t1.Day() == t2.Day()
 }
 
-// GetRequestStats 获取请求统计数据
-func GetRequestStats() []RequestStats {
-	statsLock.RLock()
-	defer statsLock.RUnlock()
-
-	// 返回副本以避免外部修改
-	statsCopy := make([]RequestStats, len(requestStats))
-	copy(statsCopy, requestStats)
-	return statsCopy
-}
-
-// GetCurrentRPM 获取当前每分钟请求数
-func GetCurrentRPM() int {
-	statsLock.RLock()
-	defer statsLock.RUnlock()
-
-	if len(requestStats) == 0 {
-		return 0
-	}
-
-	// 获取最近5分钟的数据
-	startIdx := 0
-	if len(requestStats) > 5 {
-		startIdx = len(requestStats) - 5
-	}
-
-	totalRequests := 0
-	for i := startIdx; i < len(requestStats); i++ {
-		totalRequests += requestStats[i].RequestCount
-	}
-
-	// 计算平均每分钟请求数
-	minutes := len(requestStats) - startIdx
-	if minutes == 0 {
-		return 0
-	}
-
-	return totalRequests / minutes
-}
-
-// GetCurrentTPM 获取当前每分钟令牌数
-func GetCurrentTPM() int {
-	statsLock.RLock()
-	defer statsLock.RUnlock()
-
-	if len(requestStats) == 0 {
-		return 0
-	}
-
-	// 获取最近5分钟的数据
-	startIdx := 0
-	if len(requestStats) > 5 {
-		startIdx = len(requestStats) - 5
-	}
-
-	totalTokens := 0
-	for i := startIdx; i < len(requestStats); i++ {
-		totalTokens += requestStats[i].TokenCount
-	}
-
-	// 计算平均每分钟令牌数
-	minutes := len(requestStats) - startIdx
-	if minutes == 0 {
-		return 0
-	}
-
-	return totalTokens / minutes
-}
-
 // isSameMinute 判断两个时间戳是否在同一分钟内
 func isSameMinute(ts1, ts2 int64) bool {
 	t1 := time.Unix(ts1, 0)
@@ -1025,7 +878,7 @@ func isSameMinute(ts1, ts2 int64) bool {
 	return t1.Year() == t2.Year() && t1.Month() == t2.Month() && t1.Day() == t2.Day() && t1.Hour() == t2.Hour() && t1.Minute() == t2.Minute()
 }
 
-// UpdateApiKeyRequestStats 更新API密钥的请求统计信息
+// UpdateApiKeyRequestStats 更新API密钥的请求系统概要
 func UpdateApiKeyRequestStats(key string, requestCount, tokenCount int) bool {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
@@ -1133,76 +986,15 @@ func GetCurrentRequestStats() (int, int) {
 	return requestCount, tokenCount
 }
 
-// SaveConfig 保存配置到文件
-// func SaveConfig() error {
-// 	if config == nil {
-// 		logger.Error("配置为空，无法保存")
-// 		return fmt.Errorf("配置为空")
-// 	}
-
-// 	// 使用viper保存配置
-// 	if err := viper.WriteConfig(); err != nil {
-// 		logger.Error("保存配置文件失败: %v", err)
-// 		return err
-// 	}
-
-// 	logger.Info("成功保存配置到文件")
-// 	return nil
-// }
-
-// SaveApiKeys 保存API密钥到文件
+// SaveApiKeys 保存API密钥到数据库
 func SaveApiKeys() error {
-	return SaveApiKeysWithLock(true)
-}
-
-// SaveApiKeysWithLock 保存API密钥到文件，可选择是否获取锁
-func SaveApiKeysWithLock(withLock bool) error {
-	if withLock {
-		keysMutex.RLock()
-		defer keysMutex.RUnlock()
-	}
-
-	// 创建API密钥的副本，以便修改
-	keysCopy := make([]ApiKey, len(apiKeys))
-	copy(keysCopy, apiKeys)
-
-	// 清空所有密钥的RecentRequests数组，并重置RPM和TPM
-	for i := range keysCopy {
-		// RecentRequests字段已经标记为json:"-"，不会被序列化
-		// 但为了确保数据一致性，我们也清空它
-		keysCopy[i].RecentRequests = nil
-		// 重置RPM和TPM为0，这样在程序重启后不会保留旧值
-		keysCopy[i].RequestsPerMinute = 0
-		keysCopy[i].TokensPerMinute = 0
-	}
-
-	// 将API密钥序列化为JSON
-	data, err := json.MarshalIndent(keysCopy, "", "  ")
+	err := SaveApiKeysToDB()
 	if err != nil {
-		log.Printf("序列化API密钥失败: %v", err)
+		logger.Error("保存API密钥到数据库失败: %v", err)
 		return err
 	}
 
-	// 如果apiKeysFile未设置，使用默认路径
-	if apiKeysFile == "" {
-		apiKeysFile = "data/api_keys.json"
-		log.Printf("使用默认API密钥文件路径: %s", apiKeysFile)
-	}
-
-	// 确保目录存在
-	dir := filepath.Dir(apiKeysFile)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Printf("创建API密钥目录失败: %v", err)
-		return err
-	}
-
-	// 写入文件
-	if err := os.WriteFile(apiKeysFile, data, 0644); err != nil {
-		log.Printf("写入API密钥文件失败: %v", err)
-		return err
-	}
-
-	log.Printf("成功保存 %d 个API密钥到文件", len(keysCopy))
+	logger.Info("API密钥成功保存到数据库")
 	return nil
 }
 
@@ -1276,4 +1068,211 @@ func UpdateConfig(newConfig *Config) {
 
 	// 标准化模型策略配置
 	standardizeModelKeyStrategies()
+}
+
+// MarkApiKeyForDeletion 标记API密钥为删除状态
+func MarkApiKeyForDeletion(key string) bool {
+	keysMutex.Lock()
+	defer keysMutex.Unlock()
+
+	for i, k := range apiKeys {
+		if k.Key == key {
+			apiKeys[i].Delete = true
+			log.Printf("API密钥 %s 已标记为删除", MaskKey(key))
+
+			// 更新数据库中的删除标记
+			keyCopy := apiKeys[i]
+			keyCopy.RecentRequests = nil // 清空不需要保存的字段
+			if err := AddApiKeyToDB(keyCopy); err != nil {
+				logger.Error("更新删除标记到数据库失败: %v", err)
+			}
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// RemoveMarkedApiKeys 删除所有标记为删除的API密钥
+func RemoveMarkedApiKeys() int {
+	keysMutex.Lock()
+	defer keysMutex.Unlock()
+
+	originalLength := len(apiKeys)
+	newKeys := make([]ApiKey, 0, originalLength)
+
+	// 保存需要删除的密钥列表
+	keysToDelete := make([]string, 0)
+
+	for _, k := range apiKeys {
+		if !k.Delete {
+			newKeys = append(newKeys, k)
+		} else {
+			log.Printf("删除已标记的API密钥: %s", MaskKey(k.Key))
+			// 记录需要从数据库中删除的密钥
+			keysToDelete = append(keysToDelete, k.Key)
+		}
+	}
+
+	deleted := originalLength - len(newKeys)
+	if deleted > 0 {
+		apiKeys = newKeys
+
+		// 从数据库中删除标记的密钥
+		for _, keyToDelete := range keysToDelete {
+			if err := DeleteApiKeyFromDB(keyToDelete); err != nil {
+				logger.Error("从数据库删除API密钥失败: %v", err)
+			}
+		}
+	}
+
+	return deleted
+}
+
+// EnsureDefaultConfig 检查配置表中是否有数据，如果没有则插入默认配置
+func EnsureDefaultConfig(dbPath string) error {
+	// 确保全局数据库连接已经初始化
+	if db == nil {
+		logger.Error("数据库连接未初始化，先初始化连接")
+		err := InitConfigDB(dbPath)
+		if err != nil {
+			return fmt.Errorf("初始化数据库连接失败: %w", err)
+		}
+	}
+
+	// 检查数据库连接是否可用
+	if err := db.Ping(); err != nil {
+		logger.Error("数据库连接不可用: %v", err)
+		return fmt.Errorf("数据库连接不可用: %w", err)
+	}
+
+	// 检查是否已存在配置
+	var configValue string
+	err := db.QueryRow("SELECT value FROM config WHERE key = 'config'").Scan(&configValue)
+
+	// 如果没有找到配置行或者出现其他错误，插入默认配置
+	if err != nil {
+		logger.Info("数据库中没有找到配置或发生错误: %v，将插入默认配置", err)
+
+		// 使用默认版本号
+		version := "v1.3.7" // 默认版本号
+
+		// 确保版本已保存
+		_, err = db.Exec("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", "version", version)
+		if err != nil {
+			logger.Error("无法插入版本号: %v", err)
+			// 继续，因为这不是致命错误
+		} else {
+			logger.Info("已插入默认版本号: %s", version)
+		}
+
+		// 确保版本号格式正确
+		if !strings.HasPrefix(version, "v") {
+			version = "v" + version
+		}
+
+		// 插入默认配置
+		defaultConfig := fmt.Sprintf(`{
+			"Server":{"Port":3016},
+			"ApiProxy":{
+				"BaseURL":"https://api.siliconflow.cn",
+				"ModelIndex":0,
+				"Retry":{
+					"MaxRetries":2,
+					"RetryDelayMs":1000,
+					"RetryOnStatusCodes":[500,502,503,504],
+					"RetryOnNetworkErrors":true
+				}
+			},
+			"Proxy":{
+				"HttpProxy":"",
+				"HttpsProxy":"",
+				"SocksProxy":"127.0.0.1:10808",
+				"ProxyType":"socks5",
+				"Enabled":false
+			},
+			"App":{
+				"Title":"流动硅基 FlowSilicon %s",
+				"MinBalanceThreshold":0.8,
+				"MaxBalanceDisplay":14,
+				"ItemsPerPage":5,
+				"MaxStatsEntries":60,
+				"RecoveryInterval":10,
+				"MaxConsecutiveFailures":5,
+				"BalanceWeight":0.4,
+				"SuccessRateWeight":0.3,
+				"RPMWeight":0.15,
+				"TPMWeight":0.15,
+				"AutoUpdateInterval":500,
+				"StatsRefreshInterval":100,
+				"RateRefreshInterval":150,
+				"ModelKeyStrategies":{},
+				"HideIcon":false
+			},
+			"Log":{"MaxSizeMB":1, "Level":"warn"}
+		}`, version)
+
+		// 插入默认配置到数据库
+		_, err = db.Exec(
+			"INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+			"config",
+			defaultConfig,
+		)
+		if err != nil {
+			return fmt.Errorf("插入默认配置失败: %w", err)
+		}
+
+		logger.Info("已成功插入默认配置到数据库")
+	} else {
+		logger.Info("找到现有配置，无需插入默认配置")
+	}
+
+	return nil
+}
+
+// LoadApiKeys 加载API密钥
+// 此函数为保持向后兼容性而存在，实际调用LoadApiKeysFromDB
+func LoadApiKeys() error {
+	logger.Info("调用LoadApiKeys函数加载API密钥")
+	return LoadApiKeysFromDB()
+}
+
+// GetUsedApiKeys 获取所有已使用过的API密钥
+func GetUsedApiKeys() []ApiKey {
+	allKeys := GetApiKeys() // 已经过滤掉标记为删除的密钥
+
+	// 筛选出已使用过的密钥
+	var usedKeys []ApiKey
+	for _, key := range allKeys {
+		if key.IsUsed {
+			usedKeys = append(usedKeys, key)
+		}
+	}
+
+	return usedKeys
+}
+
+// MarkApiKeyAsUnused 标记 API 密钥为未使用
+func MarkApiKeyAsUnused(key string) bool {
+	keysMutex.Lock()
+	defer keysMutex.Unlock()
+
+	for i, k := range apiKeys {
+		if k.Key == key {
+			apiKeys[i].IsUsed = false
+
+			// 保存更新到数据库
+			if db != nil {
+				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
+					SET is_used = ? WHERE key = ?`, false, key)
+				if err != nil {
+					logger.Error("更新API密钥未使用状态到数据库失败: %v", err)
+				}
+			}
+
+			return true
+		}
+	}
+	return false
 }

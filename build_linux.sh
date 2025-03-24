@@ -4,8 +4,13 @@
 # 该脚本用于在 Linux 环境下编译和打包项目
 
 # 设置版本号
-VERSION="1.3.6"
-echo "开始构建流动硅基 (FlowSilicon) v${VERSION} for Linux..."
+VERSION="1.3.7"
+echo "===== 流动硅基 Linux 打包工具 v1.0 ====="
+echo ""
+
+# 设置基本路径
+OUTPUT_DIR="build"
+TEMP_DIR="temp_build"
 
 # 检查系统依赖
 echo "检查系统依赖..."
@@ -24,7 +29,7 @@ if ! pkg-config --exists gtk+-3.0 2>/dev/null; then
 fi
 
 if ! pkg-config --exists appindicator3-0.1 2>/dev/null; then
-    MISSING_DEPS="$MISSING_DEPS libappindicator3-dev"
+    MISSING_DEPS="$MISSING_DEPS libayatana-appindicator3-dev"
 fi
 
 # 如果有缺失的依赖，输出安装建议
@@ -45,150 +50,224 @@ if [ ! -z "$MISSING_DEPS" ]; then
     fi
 fi
 
+# 创建临时目录
+rm -rf $TEMP_DIR
+mkdir -p $TEMP_DIR
+
 # 确保目录存在
-mkdir -p build
+mkdir -p $OUTPUT_DIR
+
+# 检查go.mod问题
+echo "第1步: 检查并更新go.mod..."
+if [ -f "go.mod" ]; then
+    echo "检查go.mod中的Go版本..."
+    
+    # 获取当前Go版本
+    GO_VERSION=$(go version | awk '{print $3}')
+    
+    # 提取纯粹的版本号部分
+    GO_VER_CLEAN=$(echo ${GO_VERSION#go} | cut -d'-' -f1)
+    echo "提取的Go版本号: $GO_VER_CLEAN"
+    
+    echo "更新go.mod使用的Go版本..."
+    go mod edit -go=$GO_VER_CLEAN
+    
+    # 执行go mod tidy确保go.mod和go.sum文件同步
+    echo "执行go mod tidy..."
+    go mod tidy -e
+    
+    if [ $? -ne 0 ]; then
+        echo "警告: go.mod更新失败，但将继续尝试编译"
+    else
+        echo "go.mod更新成功！"
+    fi
+else
+    echo "未找到go.mod文件，跳过此步骤"
+fi
+
+# 选择打包模式
+echo ""
+echo "选择打包模式:"
+echo "[1] 标准版 - 基本功能"
+echo "[2] 托盘版 - 支持系统托盘，可最小化到任务栏 (推荐)"
+echo "[3] 极简版 - 最小体积，基本功能"
+echo ""
+read -p "请输入选择 (默认为2): " MODE
+
+if [ -z "$MODE" ]; then
+    MODE="2"
+fi
+
+# 根据模式设置不同的编译选项
+if [ "$MODE" = "1" ]; then
+    BUILD_TYPE="标准版"
+    EXTRA_DEPS=""
+    EXTRA_FLAGS=""
+elif [ "$MODE" = "2" ]; then
+    BUILD_TYPE="托盘版"
+    EXTRA_DEPS="github.com/getlantern/systray"
+    EXTRA_FLAGS=""
+elif [ "$MODE" = "3" ]; then
+    BUILD_TYPE="极简版"
+    EXTRA_DEPS=""
+    EXTRA_FLAGS="-tags minimal"
+else
+    echo "错误: 无效的选择"
+    exit 1
+fi
+
+echo ""
+echo "您选择了: $BUILD_TYPE"
+echo ""
+
+# 更新依赖
+if [ ! -z "$EXTRA_DEPS" ]; then
+    echo "第2步: 更新依赖..."
+    
+    echo "更新依赖: $EXTRA_DEPS"
+    go get -d $EXTRA_DEPS@v1.2.2
+    
+    echo "执行go mod tidy..."
+    go mod tidy -e
+    
+    if [ $? -ne 0 ]; then
+        echo "警告: 依赖更新失败，但将继续尝试编译"
+    else
+        echo "依赖更新成功！"
+    fi
+fi
 
 # 设置环境变量
 export GO111MODULE=on
 export CGO_ENABLED=1
 export GOOS=linux
 
-# 首先编译 Linux 专用的主程序
-echo "编译流动硅基 Linux 版本..."
-go build -o build/flowsilicon -ldflags "-s -w -X main.Version=${VERSION}" cmd/flowsilicon/linux/main_linux.go
+# 编译 Linux 版本
+echo "第3步: 编译Linux程序..."
+echo "开始构建，使用以下环境:"
+echo "GOOS=$GOOS"
+echo "CGO_ENABLED=$CGO_ENABLED"
+echo "编译标记: $EXTRA_FLAGS"
 
-# 检查编译是否成功
+go build -mod=mod -trimpath $EXTRA_FLAGS -ldflags "-s -w -X main.Version=${VERSION}" -o $OUTPUT_DIR/flowsilicon cmd/flowsilicon/linux/main_linux.go
+
 if [ $? -ne 0 ]; then
-    echo "编译失败！"
-    exit 1
+    echo "编译失败!"
+    echo "尝试备选编译方法..."
+    go build -mod=mod -trimpath $EXTRA_FLAGS -ldflags "-s -w -X main.Version=${VERSION}" -o $OUTPUT_DIR/flowsilicon cmd/flowsilicon/linux/main_linux.go
+    
+    if [ $? -ne 0 ]; then
+        echo "错误: 备选编译方法也失败，请检查Go安装"
+        echo "建议: 尝试重新安装Go标准版本"
+        exit 1
+    fi
 fi
 
-echo "编译成功！"
+echo "基本编译完成，文件大小:"
+ls -lh $OUTPUT_DIR/flowsilicon | awk '{print $5}'
 
-# 创建分发目录
-DIST_DIR="dist/flowsilicon_${VERSION}_linux"
-mkdir -p $DIST_DIR
-mkdir -p $DIST_DIR/config
-mkdir -p $DIST_DIR/data
-mkdir -p $DIST_DIR/logs
+# 询问是否使用UPX压缩
+echo ""
+read -p "是否使用UPX进行极致压缩? (Y/N, 默认Y): " COMPRESS
+if [ -z "$COMPRESS" ]; then
+    COMPRESS="Y"
+fi
 
-# 创建默认配置文件
-echo "创建默认配置文件..."
-CONFIG_FILE="$DIST_DIR/config/config.yaml"
-cat > $CONFIG_FILE << 'EOF'
-# API代理配置
-api_proxy:
-  # API基础URL，用于转发请求
-  base_url: https://api.siliconflow.cn
-  # 重试配置
-  retry:
-    # 最大重试次数，0表示不重试
-    max_retries: 2
-    # 重试间隔（毫秒）
-    retry_delay_ms: 1000
-    # 是否对特定错误码进行重试
-    retry_on_status_codes: [500, 502, 503, 504]
-    # 是否对网络错误进行重试
-    retry_on_network_errors: true
+if [[ $COMPRESS =~ ^[Yy]$ ]]; then
+    echo "第4步: 下载UPX..."
+    wget -q -O $TEMP_DIR/upx.tar.xz "https://github.com/upx/upx/releases/download/v5.0.0/upx-5.0.0-amd64_linux.tar.xz"
+    
+    if [ $? -ne 0 ]; then
+        echo "警告: 无法下载UPX，将跳过压缩步骤"
+    else
+        echo "正在解压UPX..."
+        tar -xf $TEMP_DIR/upx.tar.xz -C $TEMP_DIR
+        
+        echo "第5步: 极致压缩..."
+        $TEMP_DIR/upx-*/upx --best --lzma $OUTPUT_DIR/flowsilicon
+        
+        echo "压缩后文件大小:"
+        ls -lh $OUTPUT_DIR/flowsilicon | awk '{print $5}'
+    fi
+else
+    echo "跳过UPX压缩步骤"
+fi
 
-# 代理设置
-proxy:
-  # HTTP代理地址，格式为 http://host:port，留空表示不使用代理
-  http_proxy: ""
-  # HTTPS代理地址，格式为 https://host:port，留空表示不使用代理
-  https_proxy: ""
-  # SOCKS5代理地址，格式为 host:port，留空表示不使用代理
-  socks_proxy: "127.0.0.1:1080"
-  # 代理类型：http, https, socks5
-  proxy_type: "socks5"
-  # 是否启用代理
-  enabled: false
+echo "第6步: 创建必要目录..."
+mkdir -p $OUTPUT_DIR/data
+mkdir -p $OUTPUT_DIR/logs
 
-# 服务器配置
-server:
-  # 服务器监听端口
-  port: 3201
+echo "第7步: 复制Web静态资源文件..."
+echo "复制所有Web静态资源..."
 
-# 日志配置
-log:
-  # 日志文件最大大小（MB），超过此大小的日志将被清理
-  max_size_mb: 1
+# 确保web目录结构存在
+mkdir -p $OUTPUT_DIR/web/static
+mkdir -p $OUTPUT_DIR/web/templates
+mkdir -p $OUTPUT_DIR/web/static/img
+mkdir -p $OUTPUT_DIR/web/static/js
+mkdir -p $OUTPUT_DIR/web/static/css
 
-# 应用程序配置
-app:
-  # 应用程序标题，显示在Web界面上
-  title: "流动硅基 FlowSilicon"
-  # 最低余额阈值，低于此值的API密钥将被自动禁用
-  min_balance_threshold: 0.8
-  # 余额显示的最大值，用于前端显示进度条
-  max_balance_display: 14
-  # 每页显示的密钥数量
-  items_per_page: 5
-  # 最大统计条目数，用于限制请求统计的历史记录数量
-  max_stats_entries: 60
-  # 恢复检查间隔（分钟），系统会每隔此时间尝试恢复被禁用的密钥
-  recovery_interval: 10
-  # 最大连续失败次数，超过此值的密钥将被自动禁用
-  max_consecutive_failures: 5
-  # 是否隐藏系统托盘图标
-  hide_icon: false
-  # 权重配置
-  # 余额评分权重（默认0.4，即40%）
-  balance_weight: 0.4
-  # 成功率评分权重（默认0.3，即30%）
-  success_rate_weight: 0.3
-  # RPM评分权重（默认0.15，即15%）
-  rpm_weight: 0.15
-  # TPM评分权重（默认0.15，即15%）
-  tpm_weight: 0.15
-  # 自动更新配置
-  stats_refresh_interval: 10  # 统计信息自动刷新间隔（秒）
-  rate_refresh_interval: 15   # 速率监控自动刷新间隔（秒）
-  auto_update_interval: 10   # API密钥状态自动更新间隔（秒）
-  # 模型特定的密钥选择策略
-  # 策略ID: 1=高成功率, 2=高分数, 3=低RPM, 4=低TPM, 5=高余额
-  model_key_strategies:
-    "deepseek-ai/DeepSeek-V3": 1  # 使用高成功率策略
-EOF
+# 复制所有静态资源文件
+echo "复制图标文件..."
+if [ -d "web/static/img" ]; then
+    cp -f web/static/img/*.ico $OUTPUT_DIR/web/static/img/ 2>/dev/null || :
+    cp -f web/static/img/*.png $OUTPUT_DIR/web/static/img/ 2>/dev/null || :
+fi
 
-# 复制编译好的程序
-cp build/flowsilicon $DIST_DIR/
+echo "复制CSS文件..."
+if [ -d "web/static/css" ]; then
+    cp -f web/static/css/*.css $OUTPUT_DIR/web/static/css/ 2>/dev/null || :
+fi
 
-# 复制必要的静态资源
-echo "复制静态资源文件..."
-mkdir -p $DIST_DIR/web/static
-mkdir -p $DIST_DIR/web/templates
-cp -r web/static/* $DIST_DIR/web/static/
-cp -r web/templates/* $DIST_DIR/web/templates/
+echo "复制JavaScript文件..."
+if [ -d "web/static/js" ]; then
+    cp -f web/static/js/*.js $OUTPUT_DIR/web/static/js/ 2>/dev/null || :
+fi
+
+echo "复制HTML模板..."
+if [ -d "web/templates" ]; then
+    cp -f web/templates/*.html $OUTPUT_DIR/web/templates/ 2>/dev/null || :
+fi
+
+echo "复制其他资源文件..."
+if [ -d "web/static/fonts" ]; then
+    mkdir -p $OUTPUT_DIR/web/static/fonts
+    cp -rf web/static/fonts/* $OUTPUT_DIR/web/static/fonts/ 2>/dev/null || :
+fi
+
+if [ -d "web/static/images" ]; then
+    mkdir -p $OUTPUT_DIR/web/static/images
+    cp -rf web/static/images/* $OUTPUT_DIR/web/static/images/ 2>/dev/null || :
+fi
 
 # 创建图标目录
-mkdir -p $DIST_DIR/icons/hicolor/16x16/apps
-mkdir -p $DIST_DIR/icons/hicolor/24x24/apps
-mkdir -p $DIST_DIR/icons/hicolor/32x32/apps
-mkdir -p $DIST_DIR/icons/hicolor/48x48/apps
-mkdir -p $DIST_DIR/icons/hicolor/64x64/apps
-mkdir -p $DIST_DIR/icons/hicolor/128x128/apps
+mkdir -p $OUTPUT_DIR/icons/hicolor/16x16/apps
+mkdir -p $OUTPUT_DIR/icons/hicolor/24x24/apps
+mkdir -p $OUTPUT_DIR/icons/hicolor/32x32/apps
+mkdir -p $OUTPUT_DIR/icons/hicolor/48x48/apps
+mkdir -p $OUTPUT_DIR/icons/hicolor/64x64/apps
+mkdir -p $OUTPUT_DIR/icons/hicolor/128x128/apps
 
 # 检查是否存在convert工具（ImageMagick）
 if command -v convert &> /dev/null; then
     echo "转换ICO图标到PNG格式..."
     # 将ICO图标转换为不同尺寸的PNG图标
-    convert $DIST_DIR/web/static/favicon_16.ico $DIST_DIR/icons/hicolor/16x16/apps/flowsilicon.png
-    convert $DIST_DIR/web/static/favicon_16.ico -resize 24x24 $DIST_DIR/icons/hicolor/24x24/apps/flowsilicon.png
-    convert $DIST_DIR/web/static/favicon_16.ico -resize 32x32 $DIST_DIR/icons/hicolor/32x32/apps/flowsilicon.png
-    convert $DIST_DIR/web/static/favicon_16.ico -resize 48x48 $DIST_DIR/icons/hicolor/48x48/apps/flowsilicon.png
-    convert $DIST_DIR/web/static/favicon_16.ico -resize 64x64 $DIST_DIR/icons/hicolor/64x64/apps/flowsilicon.png
-    convert $DIST_DIR/web/static/favicon_16.ico -resize 128x128 $DIST_DIR/icons/hicolor/128x128/apps/flowsilicon.png
+    convert web/static/img/favicon_32.ico $OUTPUT_DIR/icons/hicolor/16x16/apps/flowsilicon.png
+    convert web/static/img/favicon_32.ico -resize 24x24 $OUTPUT_DIR/icons/hicolor/24x24/apps/flowsilicon.png
+    convert web/static/img/favicon_32.ico -resize 32x32 $OUTPUT_DIR/icons/hicolor/32x32/apps/flowsilicon.png
+    convert web/static/img/favicon_32.ico -resize 48x48 $OUTPUT_DIR/icons/hicolor/48x48/apps/flowsilicon.png
+    convert web/static/img/favicon_32.ico -resize 64x64 $OUTPUT_DIR/icons/hicolor/64x64/apps/flowsilicon.png
+    convert web/static/img/favicon_32.ico -resize 128x128 $OUTPUT_DIR/icons/hicolor/128x128/apps/flowsilicon.png
 else
     echo "警告: 未安装ImageMagick，无法转换ICO图标到PNG格式。"
     echo "为了获得最佳效果，请安装ImageMagick: sudo apt-get install imagemagick"
     # 创建一个空的PNG文件作为占位符
-    cp $DIST_DIR/web/static/favicon_16.ico $DIST_DIR/icons/hicolor/16x16/apps/flowsilicon.png
+    cp web/static/img/favicon_32.ico $OUTPUT_DIR/icons/hicolor/16x16/apps/flowsilicon.png 2>/dev/null || :
 fi
 
 # 创建启动脚本
-echo "创建启动脚本..."
-cat > $DIST_DIR/start.sh << 'EOF'
+echo "第8步: 创建启动脚本..."
+cat > $OUTPUT_DIR/start.sh << 'EOF'
 #!/bin/bash
 # 流动硅基启动脚本
 
@@ -212,17 +291,17 @@ fi
 EOF
 
 # 使启动脚本可执行
-chmod +x $DIST_DIR/start.sh
+chmod +x $OUTPUT_DIR/start.sh
 
 # 创建桌面快捷方式
 echo "创建桌面快捷方式..."
-cat > $DIST_DIR/flowsilicon.desktop << EOF
+cat > $OUTPUT_DIR/flowsilicon.desktop << EOF
 [Desktop Entry]
 Type=Application
 Name=流动硅基 FlowSilicon
 GenericName=API代理服务
-Exec="`pwd`/${DIST_DIR}/start.sh" --gui
-Icon="`pwd`/${DIST_DIR}/icons/hicolor/128x128/apps/flowsilicon.png"
+Exec="`pwd`/${OUTPUT_DIR}/start.sh" --gui
+Icon="`pwd`/${OUTPUT_DIR}/icons/hicolor/128x128/apps/flowsilicon.png"
 Comment=流动硅基API代理服务
 Categories=Network;Utility;
 Terminal=false
@@ -232,7 +311,7 @@ EOF
 
 # 创建系统图标安装脚本
 echo "创建图标安装脚本..."
-cat > $DIST_DIR/install_icons.sh << 'EOF'
+cat > $OUTPUT_DIR/install_icons.sh << 'EOF'
 #!/bin/bash
 # 流动硅基图标安装脚本
 
@@ -280,11 +359,11 @@ echo "图标安装完成！您现在可以在应用程序菜单中找到流动�
 EOF
 
 # 使图标安装脚本可执行
-chmod +x $DIST_DIR/install_icons.sh
+chmod +x $OUTPUT_DIR/install_icons.sh
 
 # 创建README文件
-echo "创建README文件..."
-cat > $DIST_DIR/README.txt << EOF
+echo "第9步: 创建README文件..."
+cat > $OUTPUT_DIR/README.txt << EOF
 流动硅基 (FlowSilicon) v${VERSION} for Linux
 
 ======== 使用说明 ========
@@ -299,7 +378,7 @@ cat > $DIST_DIR/README.txt << EOF
 
 3. 系统依赖:
    在Ubuntu/Debian系统上，安装以下依赖:
-   sudo apt-get install libgtk-3-dev libappindicator3-dev
+   sudo apt-get install libgtk-3-dev libayatana-appindicator3-dev
 
    在Fedora/RHEL系统上，安装以下依赖:
    sudo dnf install gtk3-devel libappindicator-gtk3-devel
@@ -313,7 +392,7 @@ cat > $DIST_DIR/README.txt << EOF
 
 6. 日志文件存储在 logs 目录下
 
-7. 程序默认在 3201 端口运行，可通过配置文件修改
+7. 程序默认在 3016 端口运行，可通过配置文件修改
 
 8. 如需使用代理，请在配置文件中设置
 
@@ -322,135 +401,13 @@ cat > $DIST_DIR/README.txt << EOF
 注意：首次运行可能需要授予执行权限：chmod +x start.sh
 EOF
 
-# 复制Linux安装文档
-if [ -f "LINUX_SETUP.md" ]; then
-    echo "复制Linux安装文档..."
-    cp LINUX_SETUP.md $DIST_DIR/LINUX_SETUP.md
-else
-    echo "创建Linux安装文档..."
-    cat > $DIST_DIR/LINUX_SETUP.md << 'EOF'
-# 流动硅基 FlowSilicon - Linux 安装指南
+# 清理临时目录
+echo "第10步: 清理临时文件..."
+rm -rf $TEMP_DIR
 
-这个文档提供了在 Linux 环境下安装和配置流动硅基 (FlowSilicon) 的详细步骤。
-
-## 系统依赖安装
-
-为了让系统托盘图标和最小化到任务栏等功能正常工作，您需要安装以下依赖：
-
-### Ubuntu/Debian 系统
-
-```bash
-sudo apt-get update
-sudo apt-get install libgtk-3-dev libappindicator3-dev xdotool imagemagick
-```
-
-### Fedora/RHEL 系统
-
-```bash
-sudo dnf install gtk3-devel libappindicator-gtk3-devel xdotool ImageMagick
-```
-
-### Arch Linux 系统
-
-```bash
-sudo pacman -S gtk3 libappindicator-gtk3 xdotool imagemagick
-```
-
-## 安装流程
-
-1. 解压下载的压缩包：
-
-```bash
-tar -xzvf flowsilicon_${VERSION}_linux.tar.gz
-cd flowsilicon_${VERSION}_linux
-```
-
-2. 运行图标安装脚本以安装系统图标和桌面快捷方式：
-
-```bash
-./install_icons.sh
-```
-
-3. 启动程序：
-
-```bash
-# 控制台模式
-./start.sh
-
-# 或 GUI 模式（后台运行）
-./start.sh --gui
-```
-
-## 功能说明
-
-### 系统托盘
-
-程序启动后会在系统托盘区域显示一个图标。如果您没有看到图标，可能是因为：
-
-1. 缺少必要的系统依赖（参见上面的安装指南）
-2. 您的桌面环境不支持 AppIndicator 或类似机制
-
-针对不同的桌面环境，可能需要额外的配置：
-
-- **GNOME**: 默认隐藏系统托盘图标，需要安装 AppIndicator Extension
-- **KDE**: 应该默认支持
-- **XFCE**: 应该默认支持
-- **MATE**: 应该默认支持
-- **Cinnamon**: 应该默认支持
-
-### 最小化到任务栏
-
-程序支持通过系统托盘菜单的"最小化到任务栏"选项将窗口最小化。此功能需要安装 `xdotool` 工具：
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install xdotool
-
-# Fedora/RHEL
-sudo dnf install xdotool
-
-# Arch Linux
-sudo pacman -S xdotool
-```
-
-### 开机自启动
-
-您可以通过系统托盘菜单中的"开机自动启动"选项启用或禁用开机自启动功能。此选项会在 `~/.config/autostart/` 目录下创建或删除相应的 .desktop 文件。
-
-## 故障排除
-
-### 系统托盘图标不显示
-
-1. 确认已安装所需的依赖库
-2. 如果使用 GNOME，安装 AppIndicator 扩展
-3. 尝试重启程序或注销并重新登录
-
-### 最小化功能不工作
-
-1. 确认已安装 xdotool
-2. 检查日志文件，位于 `logs` 目录下
-
-### 图标显示异常
-
-1. 运行 `install_icons.sh` 脚本重新安装图标
-2. 确认已安装 imagemagick 以支持图标格式转换
-
-## 日志文件
-
-程序的日志文件位于程序目录下的 `logs` 文件夹中，如有问题可以查看日志获取更多信息。
-
----
-
-如有其他问题，请参考主 README 文件或提交问题反馈。
-EOF
-fi
-
-# 打包
-echo "打包分发文件..."
-cd dist
-tar -czvf "flowsilicon_${VERSION}_linux.tar.gz" "flowsilicon_${VERSION}_linux"
-
-echo "===================="
-echo "构建完成！"
-echo "分发包位于: dist/flowsilicon_${VERSION}_linux.tar.gz"
-echo "====================" 
+echo ""
+echo "打包完成！"
+echo "生成的可执行文件: $OUTPUT_DIR/flowsilicon"
+echo "构建类型: $BUILD_TYPE"
+echo "目标平台: Linux"
+echo "" 

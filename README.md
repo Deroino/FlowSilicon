@@ -1,18 +1,30 @@
-# FlowSilicon<img src="./img/logo.png" alt="FlowSilicon Logo" width="50"/>
+# <img src="./img/logo.png" alt="FlowSilicon Logo" width="50"/> FlowSilicon
 
 <p align="center">
-  <img src="https://img.shields.io/badge/版本-1.3.6-blue.svg" alt="版本">
+  <img src="https://img.shields.io/badge/版本-1.3.7-blue.svg" alt="版本">
   <img src="https://img.shields.io/badge/语言-Go-00ADD8.svg" alt="Go">
-  <img src="https://img.shields.io/badge/许可证-MIT-green.svg" alt="许可证">
+  <img src="https://img.shields.io/badge/许可证-Apache--2.0-green.svg" alt="许可证">
 </p>
+
 
 FlowSilicon 是一个专为硅基流动 API 设计的高性能代理服务，提供全面的 API 密钥管理、智能负载均衡、请求转发和实时监控功能。通过 FlowSilicon，您可以更高效地管理和使用硅基流动的各种 AI 服务，同时获得直观友好的 Web 管理界面。
 
 
 
+> [!note]
+>
+> 1. 功能已经基本实现, 代码还在整理和优化
+> 2. 目前v1.3.7只有Windows版本
+
+
+
 ## 截图
 
-![image-20250317180521514](./img/image1.png)
+![image-20250317180521514](./img/image5.png)
+
+
+
+![image-20250317180521514](./img/image6.png)
 
 ### 沉浸式翻译
 
@@ -37,6 +49,15 @@ FlowSilicon 是一个专为硅基流动 API 设计的高性能代理服务，提
 
 
 
+### 逻辑与架构
+
++ **Go + Gin + SQLite**
++ 如下图
+
+![image-20250317180521514](./img/image7.png)
+
+
+
 ## ✨ 核心功能
 
 ### 🔑 API 密钥管理
@@ -47,9 +68,9 @@ FlowSilicon 提供全面的 API 密钥管理功能：
 - **自动余额检测**：自动检测 API 密钥余额，无需手动输入
 - **本地安全存储**：所有 API 密钥安全存储在本地，不会上传到任何第三方服务
 - **智能密钥轮询**：支持三种 API 密钥使用模式（单独使用、全部轮询、选中轮询）
-- **多维度智能排序**：根据余额(40%)、成功率(30%)、RPM(15%)和TPM(15%)的加权评分自动排序 API 密钥
+- **多维度智能排序**：根据余额(40%)、成功率(30%)、RPM(15%)和 TPM(15%)的加权评分自动排序 API 密钥
 - **自动故障处理**：连续失败超过阈值的 API 密钥会被自动禁用，并定期尝试恢复
-- **模型特定策略**：针对不同模型可设置不同的密钥选择策略（高成功率、高分数、低RPM、低TPM、高余额）
+- **模型特定策略**：针对不同模型可设置不同的密钥选择策略（高成功率、高分数、低 RPM、低 TPM、高余额）
 
 ### 🔄 请求代理与转发
 
@@ -82,7 +103,7 @@ FlowSilicon 提供全面的 API 密钥管理功能：
 1. 从 [蓝奏云](https://hanhaii.lanzouo.com/b00ya2hfte) <u>密码:ggha</u>  or [Releases](https://github.com/HanHai-Space/FlowSilicon/releases) 页面下载最新版本的可执行文件
 2. 解压缩下载的压缩包
 3. 双击运行 `flowsilicon.exe`
-4. 系统将自动打开浏览器访问管理界面（默认地址：http://localhost:3201）
+4. 系统将自动打开浏览器访问管理界面（默认地址：http://localhost: 3016）
 
 > [!note]
 >
@@ -98,93 +119,20 @@ git https://github.com/HanHai-Space/FlowSilicon.git
 cd flowsilicon
 
 # 构建
-go build -o flowsilicon cmd/flowsilicon/main.go
+go build -o flowsilicon cmd/flowsilicon/main_windows.go
 
 # 运行
 ./flowsilicon
 ```
 
-## ⚙️ 配置说明
 
-FlowSilicon 使用 YAML 格式的配置文件 `config/config.yaml`，支持以下配置项：
 
-```yaml
-# API代理配置
-api_proxy:
-  # API基础URL，用于转发请求
-  base_url: https://api.siliconflow.cn
-  # 重试配置
-  retry:
-    # 最大重试次数，0表示不重试
-    max_retries: 2
-    # 重试间隔（毫秒）
-    retry_delay_ms: 1000
-    # 是否对特定错误码进行重试
-    retry_on_status_codes: [500, 502, 503, 504]
-    # 是否对网络错误进行重试
-    retry_on_network_errors: true
+## 📈 更新日志
 
-# 代理设置
-proxy:
-  # HTTP代理地址，格式为 http://host:port，留空表示不使用代理
-  http_proxy: ""
-  # HTTPS代理地址，格式为 https://host:port，留空表示不使用代理
-  https_proxy: ""
-  # SOCKS5代理地址，格式为 host:port，留空表示不使用代理
-  socks_proxy: "127.0.0.1:10808"
-  # 代理类型：http, https, socks5
-  proxy_type: "socks5"
-  # 是否启用代理
-  enabled: false
-
-# 服务器配置
-server:
-  # 服务器监听端口
-  port: 3201
-
-# 日志配置
-log:
-  # 日志文件最大大小（MB），超过此大小的日志将被清理
-  max_size_mb: 1
-
-# 应用程序配置
-app:
-  # 应用程序标题，显示在Web界面上
-  title: "流动硅基 FlowSilicon"
-  # 最低余额阈值，低于此值的API密钥将被自动禁用
-  min_balance_threshold: 0.8
-  # 余额显示的最大值，用于前端显示进度条
-  max_balance_display: 14
-  # 每页显示的密钥数量
-  items_per_page: 5
-  # 最大统计条目数，用于限制请求统计的历史记录数量
-  max_stats_entries: 60
-  # 恢复检查间隔（分钟），系统会每隔此时间尝试恢复被禁用的密钥
-  recovery_interval: 10
-  # 最大连续失败次数，超过此值的密钥将被自动禁用
-  max_consecutive_failures: 5
-  # 是否隐藏系统托盘图标
-  hide_icon: false
-
-  # 权重配置
-  balance_weight: 0.4     # 余额评分权重（默认0.4，即40%）
-  success_rate_weight: 0.3 # 成功率评分权重（默认0.3，即30%）
-  rpm_weight: 0.15        # RPM评分权重（默认0.15，即15%）
-  tpm_weight: 0.15        # TPM评分权重（默认0.15，即15%）
-  
-  # 自动更新配置
-  stats_refresh_interval: 10  # 统计信息自动刷新间隔（秒）
-  rate_refresh_interval: 15   # 速率监控自动刷新间隔（秒）
-  auto_update_interval: 10   # API密钥状态自动更新间隔（秒）
-  
-  # 模型特定的密钥选择策略
-  # 策略ID: 1=高成功率, 2=高分数, 3=低RPM, 4=低TPM, 5=高余额
-  model_key_strategies:
-    "deepseek-ai/DeepSeek-V3": 1  # 使用高成功率策略
-```
+请查看 [CHANGELOG.md](CHANGELOG.md) 获取完整的更新记录。
 
 
 
 ## 📄 许可证
 
-FlowSilicon 使用 [MIT 许可证](LICENSE)。 
+FlowSilicon 使用 [Apache--2.0 许可证](LICENSE)。 

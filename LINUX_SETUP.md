@@ -10,7 +10,7 @@
 
 ```bash
 sudo apt-get update
-sudo apt-get install libgtk-3-dev libappindicator3-dev xdotool imagemagick
+sudo apt-get install libgtk-3-dev libayatana-appindicator3-dev xdotool imagemagick
 ```
 
 ### Fedora/RHEL 系统
@@ -84,7 +84,7 @@ sudo pacman -S xdotool
 
 ### 开机自启动
 
-您可以通过系统托盘菜单中的"开机自动启动"选项启用或禁用开机自启动功能。此选项会在 `~/.config/autostart/` 目录下创建或删除相应的 .desktop 文件。
+您可以通过系统托盘菜单中的"开机自启"选项启用或禁用开机自启动功能。此选项会在 `~/.config/autostart/` 目录下创建或删除相应的 .desktop 文件。
 
 ## 故障排除
 

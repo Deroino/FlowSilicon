@@ -22,47 +22,6 @@ func CreateClient() *http.Client {
 	return CreateClientWithTimeout(60 * time.Second)
 }
 
-// CreateDeepseekClient 创建专门为Deepseek R1模型优化的HTTP客户端
-func CreateDeepseekClient() *http.Client {
-	// 创建自定义传输层
-	transport := &http.Transport{
-		// TCP连接设置
-		DialContext: (&net.Dialer{
-			Timeout:   180 * time.Second, // 连接超时增加到3分钟
-			KeepAlive: 180 * time.Second, // 更激进的保活
-			DualStack: true,
-		}).DialContext,
-		MaxIdleConns:          200,               // 增加空闲连接数
-		MaxIdleConnsPerHost:   50,                // 增加每主机空闲连接数
-		IdleConnTimeout:       60 * time.Minute,  // 延长空闲连接超时到60分钟
-		ResponseHeaderTimeout: 30 * time.Minute,  // 响应头超时增加到30分钟
-		ExpectContinueTimeout: 5 * time.Second,   // 允许更长的初始响应等待
-		TLSHandshakeTimeout:   180 * time.Second, // TLS握手超时增加到3分钟
-		// 禁用HTTP/2.0压缩，但启用HTTP/2.0本身
-		DisableCompression: true,
-		// 强制尝试使用HTTP/2.0
-		ForceAttemptHTTP2: true,
-		// 启用TCP保活
-		DisableKeepAlives: false,
-		// 写入缓冲区大小
-		WriteBufferSize: 262144, // 256KB
-		// 读取缓冲区大小
-		ReadBufferSize: 262144, // 256KB
-		// 设置更长的正文读取限制
-		MaxResponseHeaderBytes: 64 << 10, // 64KB
-	}
-
-	// 创建自定义客户端
-	client := &http.Client{
-		// 设置一个超长的超时（4小时）
-		Timeout:   240 * time.Minute,
-		Transport: transport,
-	}
-
-	logger.Info("已创建超长超时的Deepseek客户端，超时时间: 240分钟(4小时)，TCP保活: 180秒，缓冲区: 256KB")
-	return client
-}
-
 // CreateClientWithTimeout 创建配置了代理的HTTP客户端，使用指定超时时间
 func CreateClientWithTimeout(timeout time.Duration) *http.Client {
 	// 获取配置

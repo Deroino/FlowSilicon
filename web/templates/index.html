@@ -4,12 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .title }}</title>
-    <link rel="icon" href="/static-fs/favicon_32.ico" type="image/x-icon">
-    <link rel="shortcut icon" href="/static-fs/favicon_32.ico" type="image/x-icon">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="icon" href="/static-fs/img/favicon_32.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="/static-fs/img/favicon_32.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/static-fs/css/bootstrap.min.css" data-sourcemap="false">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="/static-fs/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="/static-fs/css/style.css">
+    <link rel="stylesheet" href="/static-fs/css/footer.css">
+    <script src="/static-fs/js/bootstrap.bundle.min.js" data-sourcemap="false"></script>
     <!-- 定义全局变量 -->
     <script>
         // 全局变量
@@ -19,19 +20,27 @@
         const STATS_REFRESH_INTERVAL = {{ .stats_refresh_interval }} ; // 统计信息刷新间隔（秒）
         const RATE_REFRESH_INTERVAL = {{ .rate_refresh_interval }} ; // 速率监控刷新间隔（秒）
     </script>
-    <script src="/static-fs/script.js"></script>
+    <script src="/static-fs/js/script.js"></script>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>{{ .title }}</h1>
+            <div class="title-container">
+                <img src="/static-fs/img/logo.png" alt="logo" class="logo">
+                <h1>{{ .title }}</h1>
+            </div>
+            <div class="d-flex justify-content-end mb-3">
+                <a href="/setting" class="btn btn-outline-secondary">
+                    <i class="bi bi-gear"></i> 系统设置
+                </a>
+            </div>
         </div>
 
         <div class="row">
             <div class="col-md-4">
                 <div class="card stats-card">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5>统计信息</h5>
+                        <h5>系统概要</h5>
                         <span class="small text-muted" id="stats-last-update">自动刷新中...</span>
                     </div>
                     <div class="card-body" id="stats-container">
@@ -105,6 +114,16 @@
                                         <textarea class="form-control" id="batch-keys" rows="5" required></textarea>
                                     </div>
                                     <div class="mb-3">
+                                        <label class="form-label">从文件导入</label>
+                                        <div class="d-flex">
+                                            <div class="input-group">
+                                                <input type="file" class="form-control" id="import-file" accept=".txt">
+                                                <button type="button" class="btn btn-outline-secondary" id="import-file-btn">导入</button>
+                                            </div>
+                                        </div>
+                                        <small class="form-text text-muted">支持导入之前导出的 apikeys.txt 文件</small>
+                                    </div>
+                                    <div class="mb-3">
                                         <label for="batch-balance" class="form-label">余额</label>
                                         <input type="number" class="form-control" id="batch-balance" value="0" step="0.01" min="0" required>
                                     </div>
@@ -126,6 +145,10 @@
                             <button id="refresh-keys" class="btn btn-sm btn-outline-secondary">
                                 <span id="refresh-spinner" class="spinner-border refresh-spinner" role="status" aria-hidden="true"></span>
                                 刷新余额
+                            </button>
+                            <button id="export-keys" class="btn btn-sm btn-outline-success ms-2">
+                                <i class="bi bi-download"></i>
+                                导出密钥
                             </button>
                             <button id="view-logs" class="btn btn-sm btn-outline-info ms-2">
                                 查看日志
@@ -152,7 +175,7 @@
                         </div>
 
                         <!-- 添加API地址显示和复制按钮 -->
-                        <div class="api-endpoints">
+                    <div class="api-endpoints">
                             <h6 style="display: flex; justify-content: space-between; align-items: center;">
                                 API 接口地址：
                                 <button id="test-all-endpoints" class="btn btn-sm btn-primary">一键检测</button>
@@ -259,30 +282,34 @@
                             </div>
                         </div>
 
+                        <div class="current-key-info">
                         <!-- 添加排序控制按钮组 -->
                         <div class="sort-controls mb-3">
-                            <div class="d-flex align-items-center">
-                                <span class="me-2">排序方式：</span>
-                                <div class="btn-group">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="score">
-                                        分数 <i class="bi bi-arrow-down"></i>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="balance">
-                                        余额 <i class="bi bi-arrow-down"></i>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="success_rate">
-                                        成功率 <i class="bi bi-arrow-down"></i>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="usage">
-                                        调用次数 <i class="bi bi-arrow-down"></i>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="rpm">
-                                        RPM <i class="bi bi-arrow-down"></i>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="tpm">
-                                        TPM <i class="bi bi-arrow-down"></i>
-                                    </button>
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div>
+                                    <span class="me-2">排序方式：</span>
+                                    <div class="btn-group">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="score">
+                                            分数 <i class="bi bi-arrow-down"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="balance">
+                                            余额 <i class="bi bi-arrow-down"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="success_rate">
+                                            成功率 <i class="bi bi-arrow-down"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="usage">
+                                            调用次数 <i class="bi bi-arrow-down"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="rpm">
+                                            RPM <i class="bi bi-arrow-down"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary sort-btn" data-sort="tpm">
+                                            TPM <i class="bi bi-arrow-down"></i>
+                                        </button>
+                                    </div>
                                 </div>
+                                <span class="small text-muted" id="keys-last-update">上次更新: 刚刚</span>
                             </div>
                         </div>
                         
@@ -309,10 +336,23 @@
                             </ul>
                         </nav>
                     </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- 页脚信息 -->
+    <footer class="footer footer-spacing py-3">
+        <div class="container text-center">
+            <p class="text-muted mb-0">@Hanhai 2025</p>
+            <p class="text-muted mb-0">
+                <a href="https://github.com/HanHai-Space/FlowSilicon" target="_blank" rel="noopener noreferrer">
+                    <i class="bi bi-github"></i> Github 仓库
+                </a>
+            </p>
+        </div>
+    </footer>
 
     <!-- 添加Toast容器 -->
     <div class="toast-container" id="toast-container"></div>

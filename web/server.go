@@ -1,10 +1,8 @@
 /*
 *
-
-	@author: Hanhai
-	@since: 2025/3/16 21:57:00
-	@desc:
-
+@author: AI
+@since: 2025/3/16 21:57:52
+@desc:
 *
 */
 package web
@@ -14,6 +12,7 @@ import (
 	"flowsilicon/internal/proxy"
 	"html/template"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -23,7 +22,7 @@ import (
 //go:embed templates/*.html
 var templatesFS embed.FS
 
-//go:embed static/*
+//go:embed static/css/* static/js/* static/img/*
 var staticFS embed.FS
 
 // SetupApiProxy 设置 API 代理路由
@@ -45,10 +44,23 @@ func SetupKeysAPI(router *gin.Engine) {
 
 	// 获取指定日期的统计数据
 	router.GET("/request-stats/daily/:date", handleGetDailyStatsByDate)
+
+	// 刷新所有API密钥余额
+	router.POST("/keys/refresh", handleRefreshAllKeysBalance)
 }
 
 // SetupWebServer 设置 Web 服务器
 func SetupWebServer(router *gin.Engine) {
+	// 添加禁用静态文件缓存的中间件
+	router.Use(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/static-fs/") {
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
+		}
+		c.Next()
+	})
+
 	// 加载模板
 	templ := template.Must(template.New("").ParseFS(templatesFS, "templates/*.html"))
 	router.SetHTMLTemplate(templ)
@@ -59,6 +71,11 @@ func SetupWebServer(router *gin.Engine) {
 	// 静态文件 - 直接从文件系统提供
 	router.Static("/static-fs", "./web/static")
 
+	// 网站图标
+	router.GET("/favicon.ico", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/static-fs/img/favicon_32.ico")
+	})
+
 	// 首页
 	router.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "index.html", gin.H{
@@ -68,6 +85,13 @@ func SetupWebServer(router *gin.Engine) {
 			"auto_update_interval":   config.GetConfig().App.AutoUpdateInterval,
 			"stats_refresh_interval": config.GetConfig().App.StatsRefreshInterval,
 			"rate_refresh_interval":  config.GetConfig().App.RateRefreshInterval,
+		})
+	})
+
+	// 设置页面
+	router.GET("/setting", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "setting.html", gin.H{
+			"title": config.GetConfig().App.Title,
 		})
 	})
 
@@ -107,6 +131,14 @@ func SetupWebServer(router *gin.Engine) {
 
 	// 请求统计数据
 	router.GET("/request-stats", handleRequestStats)
-	// 注释掉重复的路由
-	// router.GET("/request-stats/current", handleCurrentRequestStats)
+
+	// 设置相关API
+	router.GET("/settings/config", handleGetSettings)
+	router.POST("/settings/config", handleSaveSettings)
+
+	// 系统重启API
+	router.POST("/system/restart", handleSystemRestart)
+
+	// API密钥代理 - 解决CORS问题
+	router.GET("/proxy/apikeys", handleApiKeyProxy)
 }

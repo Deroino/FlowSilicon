@@ -18,11 +18,3 @@ type ApiError struct {
 func (e *ApiError) Error() string {
 	return fmt.Sprintf("%s (code: %d)", e.Message, e.Code)
 }
-
-// NewApiError 创建一个新的API错误
-func NewApiError(message string, code int) *ApiError {
-	return &ApiError{
-		Message: message,
-		Code:    code,
-	}
-}
