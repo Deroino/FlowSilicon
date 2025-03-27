@@ -10,11 +10,30 @@ import (
 	"bytes"
 	"encoding/json"
 	"flowsilicon/internal/logger"
+	"flowsilicon/internal/model"
 	"flowsilicon/pkg/utils"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// isInferenceModel 检查模型是否是推理模型(type=7)
+func isInferenceModel(modelName string) bool {
+	// 首先检查是否是DeepSeek R1，这是已知的推理模型
+	if strings.Contains(strings.ToLower(modelName), "deepseek") && strings.Contains(modelName, "r1") {
+		return true
+	}
+
+	// 从数据库获取模型类型
+	modelType, err := model.GetModelType(modelName)
+	if err != nil {
+		logger.Error("检查模型类型出错: %v", err)
+		return false
+	}
+
+	// 类型7表示推理模型
+	return modelType == 7
+}
 
 // TransformRequestBody 转换请求体，处理OpenAI和硅基流动API之间的差异
 func TransformRequestBody(body []byte, path string) ([]byte, error) {
@@ -29,32 +48,47 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 		return nil, err
 	}
 
+	// 对于无版本号路径，确保path与标准格式兼容
+	// 无版本号路径可能只有/chat而不是/chat/completions
+	pathForCheck := path
+	if strings.HasPrefix(path, "/chat") && !strings.Contains(path, "/completions") {
+		// 将/chat请求视为/chat/completions
+		pathForCheck = "/chat/completions"
+		logger.Info("检测到/chat路径请求，将被视为/chat/completions")
+	}
+
 	// 处理chat/completions请求
-	if strings.Contains(path, "/chat/completions") {
+	if strings.Contains(pathForCheck, "/chat/completions") {
+		// 检查是否有messages字段
+		if _, hasMessages := requestData["messages"]; !hasMessages {
+			logger.Error("chat/completions请求缺少messages字段")
+			return nil, fmt.Errorf("message field is required")
+		}
+
 		// 检查是否有model字段
 		if model, ok := requestData["model"].(string); ok {
-			// 针对Deepseek R1模型的特殊处理
-			if strings.Contains(strings.ToLower(model), "deepseek") && strings.Contains(model, "r1") {
+			// 检查是否是推理模型
+			if isInferenceModel(model) {
 				// 检查并设置合适的max_tokens值
 				if maxTokens, exists := requestData["max_tokens"]; !exists {
-					// 如果未设置max_tokens，为Deepseek R1设置默认值16000
+					// 如果未设置max_tokens，设置默认值16000
 					requestData["max_tokens"] = 16000
-					logger.Info("为Deepseek R1自动设置max_tokens=16000")
+					logger.Info("为推理模型%s自动设置max_tokens=16000", model)
 				} else if maxTokenValue, ok := maxTokens.(float64); ok && maxTokenValue < 1000 {
 					// 如果设置了但值太小，调整到更合理的值
 					requestData["max_tokens"] = 16000
-					logger.Info("Deepseek R1检测到过小的max_tokens值(%v)，自动调整为16000", maxTokenValue)
+					logger.Info("推理模型%s检测到过小的max_tokens值(%v)，自动调整为16000", model, maxTokenValue)
 				}
 
 				// 确保流式输出
 				if stream, exists := requestData["stream"]; !exists || stream != true {
 					requestData["stream"] = true
-					logger.Info("为Deepseek R1强制启用流式输出(stream=true)")
+					logger.Info("为推理模型%s强制启用流式输出(stream=true)", model)
 				}
 
 				// 添加足够的超时时间
 				requestData["timeout"] = 3600 // 60分钟
-				logger.Info("为Deepseek R1设置API超时时间为60分钟")
+				logger.Info("为推理模型%s设置API超时时间为60分钟", model)
 			}
 		} else {
 			// 如果没有提供模型，使用默认模型
@@ -63,31 +97,38 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 	}
 
 	// 处理completions请求
-	if strings.Contains(path, "/completions") && !strings.Contains(path, "/chat/completions") {
+	if (strings.Contains(pathForCheck, "/completions") && !strings.Contains(pathForCheck, "/chat/completions")) ||
+		(pathForCheck == "/completions") {
+		// 检查是否有prompt字段
+		if _, hasPrompt := requestData["prompt"]; !hasPrompt {
+			logger.Error("completions请求缺少prompt字段")
+			return nil, fmt.Errorf("prompt field is required")
+		}
+
 		// 检查是否有model字段
 		if model, ok := requestData["model"].(string); ok {
-			// 针对Deepseek R1模型的特殊处理
-			if strings.Contains(strings.ToLower(model), "deepseek") && strings.Contains(model, "r1") {
+			// 检查是否是推理模型
+			if isInferenceModel(model) {
 				// 检查并设置合适的max_tokens值
 				if maxTokens, exists := requestData["max_tokens"]; !exists {
-					// 如果未设置max_tokens，为Deepseek R1设置默认值16000
+					// 如果未设置max_tokens，设置默认值16000
 					requestData["max_tokens"] = 16000
-					logger.Info("为Deepseek R1自动设置max_tokens=16000")
+					logger.Info("为推理模型%s自动设置max_tokens=16000", model)
 				} else if maxTokenValue, ok := maxTokens.(float64); ok && maxTokenValue < 1000 {
 					// 如果设置了但值太小，调整到更合理的值
 					requestData["max_tokens"] = 16000
-					logger.Info("Deepseek R1检测到过小的max_tokens值(%v)，自动调整为16000", maxTokenValue)
+					logger.Info("推理模型%s检测到过小的max_tokens值(%v)，自动调整为16000", model, maxTokenValue)
 				}
 
 				// 确保流式输出
 				if stream, exists := requestData["stream"]; !exists || stream != true {
 					requestData["stream"] = true
-					logger.Info("为Deepseek R1强制启用流式输出(stream=true)")
+					logger.Info("为推理模型%s强制启用流式输出(stream=true)", model)
 				}
 
 				// 添加足够的超时时间
 				requestData["timeout"] = 3600 // 60分钟
-				logger.Info("为Deepseek R1设置API超时时间为60分钟")
+				logger.Info("为推理模型%s设置API超时时间为60分钟", model)
 			}
 		} else {
 			// 如果没有提供模型，使用默认模型
@@ -537,10 +578,10 @@ func TransformStreamEvent(data []byte) ([]byte, error) {
 
 	// 检查是否需要转换
 	if _, hasChoices := eventData["choices"]; hasChoices {
-		// 检查是否是Deepseek R1模型的回复
+		// 检查是否是推理模型的回复
 		if model, hasModel := eventData["model"].(string); hasModel {
-			if strings.Contains(strings.ToLower(model), "deepseek") && strings.Contains(model, "r1") {
-				logger.Info("检测到Deepseek R1流式响应")
+			if isInferenceModel(model) {
+				logger.Info("检测到推理模型%s的流式响应", model)
 
 				// 确保choices是数组
 				choices, ok := eventData["choices"].([]interface{})

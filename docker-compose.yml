@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  flowsilicon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flowsilicon
+    restart: unless-stopped
+    ports:
+      - "3016:3016"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+      - FLOWSILICON_GUI=0
+    networks:
+      - flowsilicon-network
+
+networks:
+  flowsilicon-network:
+    driver: bridge 

@@ -9,22 +9,52 @@ package key
 import (
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/logger"
+	"flowsilicon/internal/model"
 	"strings"
 )
 
 // GetModelSpecificKey 根据模型名称获取特定的密钥
 func GetModelSpecificKey(modelName string) (string, bool, error) {
+	logger.Info("检查模型特定策略: 模型=%s", modelName)
+
+	// 首先从models表中获取模型的策略
+	strategyID, err := model.GetModelStrategy(modelName)
+	if err != nil {
+		logger.Error("从数据库获取模型策略失败: %v", err)
+		// 如果获取失败，回退到配置文件中查找
+		return getModelStrategyFromConfig(modelName)
+	}
+
+	// 如果找到策略（strategyID > 0），应用它
+	if strategyID > 0 {
+		logger.Info("从数据库找到模型特定策略: 模型=%s, 策略ID=%d", modelName, strategyID)
+		return applyModelStrategy(modelName, strategyID)
+	}
+
+	// 如果数据库中没有指定策略，回退到配置文件中查找
+	logger.Info("数据库中没有模型策略，回退到配置查找: 模型=%s", modelName)
+	return getModelStrategyFromConfig(modelName)
+}
+
+// getModelStrategyFromConfig 从配置文件中获取模型策略（为了向后兼容）
+func getModelStrategyFromConfig(modelName string) (string, bool, error) {
 	// 检查是否有针对该模型的特定策略配置
 	cfg := config.GetConfig()
 
 	// 添加调试日志
-	logger.Info("检查模型特定策略: 模型=%s", modelName)
+	logger.Info("从配置中检查模型特定策略: 模型=%s", modelName)
 	logger.Info("当前配置的模型策略列表: %v", cfg.App.ModelKeyStrategies)
 
 	// 直接查找精确匹配
 	if strategyID, exists := cfg.App.ModelKeyStrategies[modelName]; exists {
 		// 记录找到的策略
-		logger.Info("找到模型特定策略(精确匹配): 模型=%s, 策略ID=%d", modelName, strategyID)
+		logger.Info("从配置找到模型特定策略(精确匹配): 模型=%s, 策略ID=%d", modelName, strategyID)
+
+		// 将策略ID保存到数据库中
+		if err := model.UpdateModelStrategy(modelName, strategyID); err != nil {
+			logger.Error("更新模型策略到数据库失败: %v", err)
+		}
+
 		return applyModelStrategy(modelName, strategyID)
 	}
 
@@ -33,8 +63,14 @@ func GetModelSpecificKey(modelName string) (string, bool, error) {
 	for configModel, strategyID := range cfg.App.ModelKeyStrategies {
 		if strings.ToLower(configModel) == modelNameLower {
 			// 记录找到的策略
-			logger.Info("找到模型特定策略(不区分大小写): 模型=%s 匹配配置=%s, 策略ID=%d",
+			logger.Info("从配置找到模型特定策略(不区分大小写): 模型=%s 匹配配置=%s, 策略ID=%d",
 				modelName, configModel, strategyID)
+
+			// 将策略ID保存到数据库中
+			if err := model.UpdateModelStrategy(modelName, strategyID); err != nil {
+				logger.Error("更新模型策略到数据库失败: %v", err)
+			}
+
 			return applyModelStrategy(modelName, strategyID)
 		}
 	}
@@ -70,6 +106,14 @@ func applyModelStrategy(modelName string, strategyID int) (string, bool, error) 
 	case 6: // 普通轮询策略
 		logger.Info("使用普通轮询策略选择密钥: 模型=%s", modelName)
 		key, err := getRoundRobinKey()
+		return key, true, err
+	case 7: // 低余额策略
+		logger.Info("使用低余额策略选择密钥: 模型=%s", modelName)
+		key, err := getLowestBalanceKey()
+		return key, true, err
+	case 8: // 免费模型策略
+		logger.Info("使用免费模型策略选择密钥: 模型=%s", modelName)
+		key, err := getFreeModelKey()
 		return key, true, err
 	default:
 		logger.Info("使用默认策略(普通轮询)选择密钥: 模型=%s", modelName)

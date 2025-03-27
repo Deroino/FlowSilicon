@@ -7,10 +7,12 @@
 package web
 
 import (
+	"encoding/json"
 	"flowsilicon/internal/common"
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
+	"flowsilicon/internal/model"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,9 +20,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"flowsilicon/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -534,7 +538,54 @@ func handleDeleteZeroBalanceKeys(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":      fmt.Sprintf("已删除 %d 个余额小于或等于0的API密钥", len(zeroOrNegativeBalanceKeys)),
+		"deleted":      len(zeroOrNegativeBalanceKeys),
 		"deleted_keys": zeroOrNegativeBalanceKeys,
+	})
+}
+
+// handleDeleteLowBalanceKeys 处理删除余额低于指定阈值的API密钥的请求
+func handleDeleteLowBalanceKeys(c *gin.Context) {
+	// 获取阈值参数
+	thresholdStr := c.Param("threshold")
+	threshold, err := strconv.ParseFloat(thresholdStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("无效的阈值参数: %v", err),
+		})
+		return
+	}
+
+	// 获取活动的API密钥
+	keys := config.GetActiveApiKeys()
+
+	// 过滤出余额低于阈值的API密钥
+	var lowBalanceKeys []string
+	for _, key := range keys {
+		if key.Balance < threshold {
+			lowBalanceKeys = append(lowBalanceKeys, key.Key)
+		}
+	}
+
+	// 标记这些API密钥为删除状态
+	for _, key := range lowBalanceKeys {
+		config.MarkApiKeyForDeletion(key)
+	}
+
+	// 立即从列表中移除已标记为删除的密钥
+	config.RemoveMarkedApiKeys()
+
+	// 保存更新后的状态
+	if err := config.SaveApiKeys(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("无法保存API密钥状态: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      fmt.Sprintf("已删除 %d 个余额低于 %.2f 的API密钥", len(lowBalanceKeys), threshold),
+		"deleted":      len(lowBalanceKeys),
+		"deleted_keys": lowBalanceKeys,
 	})
 }
 
@@ -709,6 +760,7 @@ func handleTestRerank(c *gin.Context) {
 func handleGetTestKey(c *gin.Context) {
 	// 使用系统配置的方式获取API密钥
 	apiKey, err := key.GetNextApiKey()
+
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"error": fmt.Sprintf("获取API密钥失败: %v", err),
@@ -719,31 +771,6 @@ func handleGetTestKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"key": apiKey,
 	})
-}
-
-// StartWebServer 启动 Web 服务器
-func StartWebServer(port int) {
-	// 设置Gin为发布模式，避免在控制台输出调试信息
-	gin.SetMode(gin.ReleaseMode)
-
-	// 创建不带默认中间件的Gin路由
-	router := gin.New()
-
-	// 使用自定义日志中间件和恢复中间件
-	router.Use(CustomLogger(), gin.Recovery())
-
-	// 设置 Web 服务器
-	SetupWebServer(router)
-
-	// 设置 API 代理
-	SetupApiProxy(router)
-
-	// 启动服务器
-	addr := fmt.Sprintf(":%d", port)
-
-	if err := router.Run(addr); err != nil {
-		logger.Fatal("Failed to start web server: %v", err)
-	}
 }
 
 // handleGetCurrentRequestStats 获取当前请求速率统计
@@ -798,26 +825,6 @@ func handleGetCurrentRequestStats(c *gin.Context) {
 		"tpd":       tpd,
 		"timestamp": time.Now().Unix(),
 		"key_stats": keyStats,
-	})
-}
-
-func handleIndex(c *gin.Context) {
-	// 获取配置
-	cfg := config.GetConfig()
-
-	// 添加调试日志
-	logger.Info("配置值 - AutoUpdateInterval: %d, StatsRefreshInterval: %d, RateRefreshInterval: %d",
-		cfg.App.AutoUpdateInterval,
-		cfg.App.StatsRefreshInterval,
-		cfg.App.RateRefreshInterval)
-
-	c.HTML(http.StatusOK, "index.html", gin.H{
-		"title":                  cfg.App.Title,
-		"max_balance_display":    cfg.App.MaxBalanceDisplay,
-		"items_per_page":         cfg.App.ItemsPerPage,
-		"auto_update_interval":   cfg.App.AutoUpdateInterval,
-		"stats_refresh_interval": cfg.App.StatsRefreshInterval,
-		"rate_refresh_interval":  cfg.App.RateRefreshInterval,
 	})
 }
 
@@ -904,21 +911,24 @@ func handleGetSettings(c *gin.Context) {
 			"enabled":     cfg.Proxy.Enabled,
 		},
 		"app": gin.H{
-			"title":                    cfg.App.Title,
-			"min_balance_threshold":    cfg.App.MinBalanceThreshold,
-			"max_balance_display":      cfg.App.MaxBalanceDisplay,
-			"items_per_page":           cfg.App.ItemsPerPage,
-			"max_stats_entries":        cfg.App.MaxStatsEntries,
-			"recovery_interval":        cfg.App.RecoveryInterval,
-			"max_consecutive_failures": cfg.App.MaxConsecutiveFailures,
-			"balance_weight":           cfg.App.BalanceWeight,
-			"success_rate_weight":      cfg.App.SuccessRateWeight,
-			"rpm_weight":               cfg.App.RPMWeight,
-			"tpm_weight":               cfg.App.TPMWeight,
-			"auto_update_interval":     cfg.App.AutoUpdateInterval,
-			"stats_refresh_interval":   cfg.App.StatsRefreshInterval,
-			"rate_refresh_interval":    cfg.App.RateRefreshInterval,
-			"hide_icon":                cfg.App.HideIcon,
+			"title":                         cfg.App.Title,
+			"min_balance_threshold":         cfg.App.MinBalanceThreshold,
+			"max_balance_display":           cfg.App.MaxBalanceDisplay,
+			"items_per_page":                cfg.App.ItemsPerPage,
+			"max_stats_entries":             cfg.App.MaxStatsEntries,
+			"recovery_interval":             cfg.App.RecoveryInterval,
+			"max_consecutive_failures":      cfg.App.MaxConsecutiveFailures,
+			"balance_weight":                cfg.App.BalanceWeight,
+			"success_rate_weight":           cfg.App.SuccessRateWeight,
+			"rpm_weight":                    cfg.App.RPMWeight,
+			"tpm_weight":                    cfg.App.TPMWeight,
+			"auto_update_interval":          cfg.App.AutoUpdateInterval,
+			"stats_refresh_interval":        cfg.App.StatsRefreshInterval,
+			"rate_refresh_interval":         cfg.App.RateRefreshInterval,
+			"auto_delete_zero_balance_keys": cfg.App.AutoDeleteZeroBalanceKeys,
+			"refresh_used_keys_interval":    cfg.App.RefreshUsedKeysInterval,
+			"hide_icon":                     cfg.App.HideIcon,
+			"disabled_models":               cfg.App.DisabledModels,
 		},
 		"log": gin.H{
 			"max_size_mb": cfg.Log.MaxSizeMB,
@@ -1075,6 +1085,24 @@ func handleSaveSettings(c *gin.Context) {
 		if rateRefresh, ok := app["rate_refresh_interval"].(float64); ok {
 			newConfig.App.RateRefreshInterval = int(rateRefresh)
 		}
+
+		// 新配置项
+		if autoDeleteZeroBalance, ok := app["auto_delete_zero_balance_keys"].(bool); ok {
+			newConfig.App.AutoDeleteZeroBalanceKeys = autoDeleteZeroBalance
+		}
+		if refreshUsedKeysInterval, ok := app["refresh_used_keys_interval"].(float64); ok {
+			newConfig.App.RefreshUsedKeysInterval = int(refreshUsedKeysInterval)
+		}
+
+		// 处理禁用的模型列表
+		if disabledModels, ok := app["disabled_models"].([]interface{}); ok {
+			newConfig.App.DisabledModels = make([]string, 0, len(disabledModels))
+			for _, model := range disabledModels {
+				if modelID, ok := model.(string); ok {
+					newConfig.App.DisabledModels = append(newConfig.App.DisabledModels, modelID)
+				}
+			}
+		}
 	}
 
 	// 日志设置
@@ -1132,9 +1160,6 @@ func handleSystemRestart(c *gin.Context) {
 		// 等待一小段时间确保响应已发送
 		time.Sleep(1 * time.Second)
 
-		// 导入cmd/flowsilicon/windows包中的函数会导致循环依赖
-		// 所以这里我们复制restartProgram的实现
-
 		execPath, err := os.Executable()
 		if err != nil {
 			logger.Error("获取当前程序路径失败: %v", err)
@@ -1154,11 +1179,7 @@ func handleSystemRestart(c *gin.Context) {
 		cmd := exec.Command(execPath, args...)
 
 		// 获取可执行文件所在目录
-		executableDir, err := filepath.Dir(execPath), nil
-		if err != nil {
-			logger.Error("获取可执行文件目录失败: %v", err)
-			return
-		}
+		executableDir := filepath.Dir(execPath)
 
 		// 设置工作目录
 		cmd.Dir = executableDir
@@ -1166,22 +1187,18 @@ func handleSystemRestart(c *gin.Context) {
 		// 传递所有当前环境变量
 		cmd.Env = os.Environ()
 
-		// 检查是否为GUI模式（Windows特定）
+		// 检查是否为GUI模式
 		if runtime.GOOS == "windows" {
-			// 使用syscall.GetConsoleWindow来检测是否有控制台窗口
-			kernel32 := syscall.NewLazyDLL("kernel32.dll")
-			getConsoleWindow := kernel32.NewProc("GetConsoleWindow")
-			hwnd, _, _ := getConsoleWindow.Call()
-			isGui := hwnd == 0
-
-			if isGui {
+			// Windows系统GUI模式检测
+			guiMode := os.Getenv("FLOWSILICON_GUI")
+			if guiMode == "1" {
 				logger.Info("以GUI模式重启程序")
-				// 在Windows上，使用特定的启动标志使窗口隐藏
-				cmd.SysProcAttr = &syscall.SysProcAttr{
-					HideWindow: true,
-				}
+
+				// 设置Windows特定的重启选项
+				utils.SetupWindowsRestartCommand(cmd, true)
 			} else {
 				logger.Info("以控制台模式重启程序")
+				utils.SetupWindowsRestartCommand(cmd, false)
 			}
 		} else if runtime.GOOS == "linux" {
 			// Linux下的GUI模式判断，通过环境变量控制
@@ -1200,8 +1217,12 @@ func handleSystemRestart(c *gin.Context) {
 				if !hasGuiEnv {
 					cmd.Env = append(cmd.Env, "FLOWSILICON_GUI=1")
 				}
+
+				// 设置平台特定的重启选项（Linux上是空操作）
+				utils.SetupWindowsRestartCommand(cmd, true)
 			} else {
 				logger.Info("以控制台模式重启程序")
+				utils.SetupWindowsRestartCommand(cmd, false)
 			}
 		}
 
@@ -1287,4 +1308,509 @@ func handleApiKeyProxy(c *gin.Context) {
 
 	// 返回原始响应状态码和内容
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
+}
+
+// getModelsHandler 获取所有模型列表
+func getModelsHandler(c *gin.Context) {
+	// 从数据库中获取所有模型
+	models, err := model.GetAllModels()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("获取模型列表失败: %v", err),
+		})
+		return
+	}
+
+	// 提取模型ID
+	var modelIds []string
+	var freeModels []string // 免费模型ID列表
+	var giftModels []string // 赠费模型ID列表
+	for _, m := range models {
+		modelIds = append(modelIds, m.ID)
+		if m.IsFree {
+			freeModels = append(freeModels, m.ID)
+		}
+		if m.IsGiftable {
+			giftModels = append(giftModels, m.ID)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":     true,
+		"data":        modelIds,
+		"free_models": freeModels, // 返回免费模型列表
+		"gift_models": giftModels, // 返回赠费模型列表
+	})
+}
+
+// syncModelsHandler 从API获取模型列表并更新数据库
+func syncModelsHandler(c *gin.Context) {
+	// 获取当前配置的API基础URL
+	cfg := config.GetConfig()
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "获取配置失败",
+		})
+		return
+	}
+
+	baseURL := cfg.ApiProxy.BaseURL
+	if baseURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "API基础URL未配置",
+		})
+		return
+	}
+
+	// 从远程API获取模型列表
+	modelIds, count, err := fetchRemoteModels(baseURL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "从API获取模型列表失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 获取数据库中的模型数量
+	dbCount, err := model.GetModelsCount()
+	if err != nil {
+		logger.Error("获取数据库模型数量失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "获取数据库模型数量失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 比较远程和本地的模型数量，如果数量一致且非强制同步，则跳过同步
+	forceSync := c.DefaultQuery("force", "false") == "true"
+	if dbCount == count && !forceSync {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "模型数量一致，无需同步",
+			"count":   dbCount,
+		})
+		return
+	}
+
+	// 保存获取到的模型列表到数据库
+	savedCount, err := model.SaveModels(modelIds)
+	if err != nil {
+		logger.Error("保存模型列表失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "保存模型列表失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "成功同步模型列表",
+		"count":   savedCount,
+	})
+}
+
+// 从远程API获取模型列表
+func fetchRemoteModels(baseURL string) ([]string, int, error) {
+
+	// 构建API请求URL
+	url := strings.TrimRight(baseURL, "/") + "/v1/models"
+
+	// 创建请求
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	apikeys := config.GetActiveApiKeys()
+	req.Header.Set("Authorization", "Bearer "+apikeys[0].Key)
+	req.Header.Set("Content-Type", "application/json")
+
+	// 发送请求
+	client := &http.Client{}
+	resp, err := client.Do(req)
+
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	// 读取响应体
+	body, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 解析响应
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, 0, err
+	}
+
+	// 提取模型列表
+	data, ok := result["data"].([]interface{})
+	if !ok {
+		logger.Error("解析模型列表失败: data字段不是数组")
+		return nil, 0, nil
+	}
+
+	// 提取模型ID
+	var modelIds []string
+	for _, item := range data {
+		model, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		id, ok := model["id"].(string)
+		if !ok {
+			continue
+		}
+
+		modelIds = append(modelIds, id)
+	}
+
+	return modelIds, len(modelIds), nil
+}
+
+// updateModelStrategyHandler 更新模型策略
+func updateModelStrategyHandler(c *gin.Context) {
+	// 获取请求参数
+	var req struct {
+		ModelID    string `json:"model_id"`
+		StrategyID int    `json:"strategy_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error("解析请求参数失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "解析请求参数失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 如果模型ID为空或策略ID小于0，返回错误
+	if req.ModelID == "" || req.StrategyID < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "模型ID不能为空且策略ID必须大于等于0",
+		})
+		return
+	}
+
+	// 如果策略ID为0，根据模型是否为免费模型设置默认策略
+	if req.StrategyID == 0 {
+		// 从数据库中获取模型信息
+		models, err := model.GetAllModels()
+		if err == nil {
+			for _, m := range models {
+				if m.ID == req.ModelID {
+					if m.IsFree {
+						req.StrategyID = 8 // 免费模型使用策略8
+					} else {
+						req.StrategyID = 6 // 非免费模型使用策略6
+					}
+					break
+				}
+			}
+		} else {
+			logger.Error("获取模型信息失败，使用默认策略6: %v", err)
+			req.StrategyID = 6 // 默认使用策略6
+		}
+	}
+
+	// 更新模型策略
+	err := model.UpdateModelStrategy(req.ModelID, req.StrategyID)
+	if err != nil {
+		logger.Error("更新模型策略失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "更新模型策略失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 更新配置中的模型策略
+	cfg := config.GetConfig()
+	if cfg.App.ModelKeyStrategies == nil {
+		cfg.App.ModelKeyStrategies = make(map[string]int)
+	}
+	cfg.App.ModelKeyStrategies[req.ModelID] = req.StrategyID
+	config.UpdateConfig(cfg)
+	config.SaveConfigToDB()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("成功将模型 %s 的策略更新为 %d", req.ModelID, req.StrategyID),
+	})
+}
+
+// getModelsAPIHandler 获取所有模型信息（包括类型和策略）
+func getModelsAPIHandler(c *gin.Context) {
+	// 从数据库中获取所有模型
+	models, err := model.GetAllModels()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("获取模型列表失败: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"models":  models,
+	})
+}
+
+// getModelsStatusHandler 获取模型状态信息
+func getModelsStatusHandler(c *gin.Context) {
+	// 在实际应用中，这里从数据库或配置中读取禁用模型的信息
+	// 这里我们使用一个简单的示例
+	disabledModels := []string{}
+
+	// 从配置文件或其他存储中获取禁用的模型
+	cfg := config.GetConfig()
+	if cfg != nil && cfg.App.DisabledModels != nil {
+		disabledModels = cfg.App.DisabledModels
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":         true,
+		"disabled_models": disabledModels,
+	})
+}
+
+// updateModelsHandler 批量更新模型信息
+func updateModelsHandler(c *gin.Context) {
+	var req struct {
+		Models         []model.Model `json:"models"`
+		DisabledModels []string      `json:"disabled_models"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("无效的请求格式: %v", err),
+		})
+		return
+	}
+
+	// 开始事务更新模型信息
+	tx, err := model.BeginTransaction()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("开始事务失败: %v", err),
+		})
+		return
+	}
+
+	// 使用defer带条件地回滚事务（只有在发生错误时才回滚）
+	committed := false
+	defer func() {
+		if !committed {
+			tx.Rollback()
+		}
+	}()
+
+	// 更新模型信息
+	for _, m := range req.Models {
+		// 更新类型 - 使用事务版本
+		if err := model.UpdateModelTypeWithTx(tx, m.ID, m.Type); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("更新模型类型失败: %v", err),
+			})
+			return
+		}
+
+		// 更新策略 - 使用事务版本
+		if err := model.UpdateModelStrategyWithTx(tx, m.ID, m.StrategyID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("更新模型策略失败: %v", err),
+			})
+			return
+		}
+
+		// 更新免费状态 - 使用事务版本
+		modelIds := []string{m.ID}
+		if _, err := model.UpdateModelFreeStatusWithTx(tx, modelIds, m.IsFree); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("更新模型免费状态失败: %v", err),
+			})
+			return
+		}
+
+		// 更新赠费状态 - 使用事务版本
+		if _, err := model.UpdateModelGiftableStatusWithTx(tx, modelIds, m.IsGiftable); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("更新模型赠费状态失败: %v", err),
+			})
+			return
+		}
+	}
+
+	// 所有更新操作成功后才提交事务
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("提交事务失败: %v", err),
+		})
+		return
+	}
+
+	// 标记事务已提交
+	committed = true
+
+	// 更新禁用模型列表
+	cfg := config.GetConfig()
+	if cfg != nil {
+		cfg.App.DisabledModels = req.DisabledModels
+		config.UpdateConfig(cfg)
+		config.SaveConfigToDB()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "模型信息更新成功",
+	})
+}
+
+// updateModelTypeHandler 更新模型类型
+func updateModelTypeHandler(c *gin.Context) {
+	// 解析请求参数
+	var req struct {
+		ModelID   string `json:"model_id"`
+		ModelType int    `json:"model_type"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error("解析请求参数失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "解析请求参数失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 验证参数
+	if req.ModelID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "模型ID不能为空",
+		})
+		return
+	}
+
+	if req.ModelType < 1 || req.ModelType > 7 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "无效的模型类型，必须在1-7之间",
+		})
+		return
+	}
+
+	// 更新模型类型
+	if err := model.UpdateModelType(req.ModelID, req.ModelType); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("更新模型类型失败: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("成功将模型 %s 的类型更新为 %d", req.ModelID, req.ModelType),
+	})
+}
+
+// handleModelManagementPage 处理模型管理页面请求
+func handleModelManagementPage(c *gin.Context) {
+	// 获取版本号
+	version := config.GetVersion()
+	if version == "" {
+		version = "v1.0.0" // 默认版本号
+	}
+
+	// 获取配置
+	cfg := config.GetConfig()
+	if cfg == nil {
+		// 如果配置为空，使用默认标题
+		c.HTML(http.StatusOK, "llmmodel.html", gin.H{
+			"title":   "流动硅基",
+			"version": version,
+		})
+		return
+	}
+
+	// 使用配置中的标题
+	c.HTML(http.StatusOK, "llmmodel.html", gin.H{
+		"title":   cfg.App.Title,
+		"version": version,
+	})
+}
+
+// deleteModelStrategyHandler 删除模型策略
+func deleteModelStrategyHandler(c *gin.Context) {
+	// 获取请求参数
+	var req struct {
+		ModelID string `json:"model_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error("解析请求参数失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "解析请求参数失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 如果模型ID为空，返回错误
+	if req.ModelID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "模型ID不能为空",
+		})
+		return
+	}
+
+	// 从数据库中删除模型策略
+	err := model.DeleteModelStrategy(req.ModelID)
+	if err != nil {
+		logger.Error("删除模型策略失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "删除模型策略失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 更新配置中的模型策略
+	cfg := config.GetConfig()
+	if cfg.App.ModelKeyStrategies != nil {
+		// 从配置中删除模型策略
+		delete(cfg.App.ModelKeyStrategies, req.ModelID)
+		config.UpdateConfig(cfg)
+		config.SaveConfigToDB()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": fmt.Sprintf("成功从数据库删除模型 %s 的策略", req.ModelID),
+	})
 }

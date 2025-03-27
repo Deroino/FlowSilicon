@@ -10,6 +10,8 @@ const STATS_REFRESH_INTERVAL = 'stats_refresh_interval'; // 统计刷新间隔
 const RATE_REFRESH_INTERVAL = 'rate_refresh_interval'; // 速率刷新间隔
 const RETRY_DELAY_MS = 'retry_delay_ms'; // 重试延迟毫秒
 const RECOVERY_INTERVAL = 'recovery_interval'; // 恢复间隔
+const AUTO_DELETE_ZERO_BALANCE_KEYS = 'auto_delete_zero_balance_keys'; // 自动删除余额为0的密钥
+const REFRESH_USED_KEYS_INTERVAL = 'refresh_used_keys_interval'; // 刷新已使用密钥余额的间隔
 const TOAST_DISPLAY_TIME = 1500; // Toast显示时间（毫秒）
 
 // 保存原始的模型列表数据
@@ -25,6 +27,23 @@ document.addEventListener('DOMContentLoaded', function() {
     // 绑定保存按钮点击事件
     document.getElementById('save-settings').addEventListener('click', function() {
         saveSettings();
+    });
+
+    // 绑定导出设置按钮点击事件
+    document.getElementById('export-settings').addEventListener('click', function() {
+        exportSettings();
+    });
+
+    // 绑定导入设置按钮点击事件
+    document.getElementById('import-settings').addEventListener('click', function() {
+        document.getElementById('settings-file-input').click();
+    });
+
+    // 监听文件输入变化事件
+    document.getElementById('settings-file-input').addEventListener('change', function(event) {
+        if (event.target.files.length > 0) {
+            importSettings(event.target.files[0]);
+        }
     });
 
     // 重启程序按钮点击事件
@@ -97,7 +116,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     tpm_weight: getValue('tpm-weight'),
                     [AUTO_UPDATE_INTERVAL]: getValue('auto-update'),
                     [STATS_REFRESH_INTERVAL]: getValue('stats-refresh'),
-                    [RATE_REFRESH_INTERVAL]: getValue('rate-refresh')
+                    [RATE_REFRESH_INTERVAL]: getValue('rate-refresh'),
+                    [AUTO_DELETE_ZERO_BALANCE_KEYS]: getValue('auto-delete-zero-balance'),
+                    [REFRESH_USED_KEYS_INTERVAL]: getValue('refresh-used-keys-interval')
                 },
                 log: {
                     max_size_mb: getValue('log-max-size'),
@@ -194,7 +215,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     tpm_weight: getValue('tpm-weight'),
                     [AUTO_UPDATE_INTERVAL]: getValue('auto-update'),
                     [STATS_REFRESH_INTERVAL]: getValue('stats-refresh'),
-                    [RATE_REFRESH_INTERVAL]: getValue('rate-refresh')
+                    [RATE_REFRESH_INTERVAL]: getValue('rate-refresh'),
+                    [AUTO_DELETE_ZERO_BALANCE_KEYS]: getValue('auto-delete-zero-balance'),
+                    [REFRESH_USED_KEYS_INTERVAL]: getValue('refresh-used-keys-interval')
                 },
                 log: {
                     max_size_mb: getValue('log-max-size'),
@@ -254,7 +277,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault(); // 阻止浏览器默认保存页面行为
             saveSettings();
-            showToast('已使用快捷键保存设置 (Ctrl+S)', 'success');
         }
     });
 });
@@ -264,8 +286,7 @@ document.addEventListener('DOMContentLoaded', function() {
  */
 function loadModelList() {
     const modelSelect = document.getElementById('new-model-name');
-    const baseUrl = window.location.origin;
-    
+
     // 创建搜索输入框和下拉列表容器
     convertToSearchableDropdown();
     
@@ -276,90 +297,95 @@ function loadModelList() {
     
     // 内部函数，用于获取模型列表
     function fetchModelList() {
-        // 获取API基础URL
-        
-        fetch(`${baseUrl}/v1/models`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('网络响应不正常，状态码: ' + response.status);
-                }
-                return response.json();
-            })
+        fetch('/models-api/list')
+            .then(response => response.json())
             .then(data => {
-                // 清空下拉列表
-                modelSelect.innerHTML = '';
-                
-                // 检查是否有可用的模型（适配新的数据格式）
-                if (data && data.data && Array.isArray(data.data) && data.data.length > 0) {
-                    // 提取模型ID列表
-                    const modelIds = data.data.map(model => model.id);
+                if (data.success) {
+                    // 检查返回的是对象数组还是字符串数组
+                    const models = data.models;
+                    let modelOptions = [];
+                    let freeModels = [];
+                    let giftModels = [];
                     
-                    // 保存所有模型ID到全局变量
-                    allModelsList = modelIds;
-                    
-                    // 添加提示选项
-                    const defaultOption = document.createElement('option');
-                    defaultOption.value = '';
-                    defaultOption.text = '请选择模型...';
-                    defaultOption.disabled = true;
-                    defaultOption.selected = true;
-                    modelSelect.appendChild(defaultOption);
-                    
-                    // 添加模型选项
-                    modelIds.forEach(model => {
-                        const option = document.createElement('option');
-                        option.value = model;
-                        option.text = model;
-                        modelSelect.appendChild(option);
-                    });
-                    
-                    // 如果已经转换为可搜索下拉框，更新下拉框选项
-                    const searchInput = document.getElementById('model-search-input');
-                    if (searchInput) {
-                        if (typeof updateDropdownOptionsFunction === 'function') {
-                            updateDropdownOptionsFunction('');
-                        }
-                    }
-                } else {
-                    // 如果没有模型，尝试重新获取
-                    console.log('没有获取到模型，准备尝试手动重新获取');
-                    
-                    // 显示正在重试的选项
-                    const retryOption = document.createElement('option');
-                    retryOption.value = '';
-                    retryOption.text = '正在重新获取模型列表...';
-                    retryOption.disabled = true;
-                    modelSelect.appendChild(retryOption);
-                    
-                    // 尝试先刷新可用模型，再重新获取
-                    fetch('/keys/refresh')
-                        .then(response => {
-                            if (!response.ok) {
-                                throw new Error('刷新模型列表失败');
-                            }
-                            return response.json();
-                        })
-                        .then(refreshData => {
-                            // 等待一秒后重新获取模型列表
-                            setTimeout(() => {
-                                fetchModelList();
-                            }, 1000);
-                        })
-                        .catch(error => {
-                            console.error('刷新模型列表失败:', error);
+                    if (models && models.length > 0) {
+                        if (typeof models[0] === 'object') {
+                            // 对象数组情况
+                            modelOptions = models;
+                            freeModels = models.filter(model => model.is_free);
+                            giftModels = models.filter(model => model.is_giftable);
                             
-                            // 显示错误信息，并提供建议
-                            const errorMessage = `获取模型列表失败: ${error.message}`;
-                            console.error(errorMessage);
-                            showNoModelsOptions(`无法从 ${baseUrl}/v1/models 获取模型列表，请检查API基础URL和网络连接`);
-                        });
+                            // 创建包含完整模型信息的对象数组
+                            allModelsList = modelOptions;
+                            
+                            // 清除现有选项
+                            modelSelect.innerHTML = '';
+                            
+                            // 如果没有模型，显示提示
+                            if (modelOptions.length === 0) {
+                                showNoModelsOptions('没有找到可用模型，请点击"同步模型"');
+                                return;
+                            }
+                            
+                            // 添加模型选项
+                            modelOptions.forEach(model => {
+                                const option = document.createElement('option');
+                                option.value = model.id; // 使用模型的id属性作为值
+                                option.textContent = model.id; // 使用模型的id属性作为显示文本
+                                modelSelect.appendChild(option);
+                            });
+                        } else {
+                            // 字符串数组情况 - 保留原有逻辑
+                            modelOptions = models;
+                            freeModels = models.filter(model => model.is_free);
+                            giftModels = models.filter(model => model.is_giftable);
+                            
+                            // 更新全局模型列表数据
+                            allModelsList = modelOptions.map(modelId => {
+                                return {
+                                    id: modelId,
+                                    is_free: freeModels.includes(modelId),
+                                    is_giftable: giftModels.includes(modelId) 
+                                };
+                            });
+                            
+                            // 清除现有选项
+                            modelSelect.innerHTML = '';
+                            
+                            // 如果没有模型，显示提示
+                            if (modelOptions.length === 0) {
+                                showNoModelsOptions('没有找到可用模型，请点击"同步模型"');
+                                return;
+                            }
+                            
+                            // 添加模型选项
+                            modelOptions.forEach(model => {
+                                const option = document.createElement('option');
+                                option.value = model;
+                                option.textContent = model;
+                                modelSelect.appendChild(option);
+                            });
+                        }
+                    } else {
+                        showNoModelsOptions('没有找到可用模型，请点击"同步模型"');
+                        return;
+                    }
+                    
+                    // 更新模型名称显示（添加免费标记）
+                    updateModelNameDisplay();
+                    
+                    // 添加选择事件监听器
+                    modelSelect.addEventListener('change', onModelSelectionChange);
+                    
+                    // 初始化默认策略
+                    onModelSelectionChange();
+                } else {
+                    showNoModelsOptions(data.message || '加载模型列表失败');
                 }
             })
+            .catch(error => {
+                console.error('获取模型列表失败:', error);
+                showNoModelsOptions('获取模型列表失败，请稍后重试');
+            });
     }
     
     // 显示无模型选项并提供手动输入功能
@@ -398,7 +424,7 @@ function loadModelList() {
         modelInput.type = 'text';
         modelInput.className = 'form-control';
         modelInput.id = 'new-model-name';
-        modelInput.placeholder = '模型名称 (例如: openai/gpt-4)';
+        modelInput.placeholder = '模型名称 (例如: deepseek/deepseek-v3)';
         
         // 替换下拉列表
         modelSelect.parentNode.replaceChild(modelInput, modelSelect);
@@ -419,7 +445,7 @@ function loadModelList() {
         searchInput.type = 'text';
         searchInput.className = 'form-control';
         searchInput.id = 'model-search-input';
-        searchInput.placeholder = '搜索或输入模型名称...';
+        searchInput.placeholder = '输入模型名称...';
         
         // 创建下拉选项容器
         const dropdownContainer = document.createElement('div');
@@ -478,8 +504,9 @@ function loadModelList() {
                 return;
             }
             
+            // 根据输入的搜索文本筛选模型
             const filteredModels = allModelsList.filter(model => 
-                model.toLowerCase().includes(searchText.toLowerCase())
+                String(model.id).toLowerCase().includes(searchText.toLowerCase())
             );
             
             if (filteredModels.length === 0) {
@@ -502,10 +529,23 @@ function loadModelList() {
                 filteredModels.forEach(model => {
                     const item = document.createElement('div');
                     item.className = 'dropdown-item';
-                    item.textContent = model;
+                    item.textContent = model.id;
                     item.style.cursor = 'pointer';
+
+                    // 根据模型属性设置不同的背景色
+                    if (model.is_free) {
+                        // is_free为1，设置浅绿色背景
+                        item.style.backgroundColor = '#e6f7e6';
+                    } else if (model.is_giftable) {
+                        // is_giftable为1，设置浅黄色背景
+                        item.style.backgroundColor = '#fff8e1';
+                    } else if (!model.is_free && !model.is_giftable) {
+                        // 两者都为0，设置浅红色背景
+                        item.style.backgroundColor = '#ffebee';
+                    }
+                    
                     item.addEventListener('click', function() {
-                        selectModel(model);
+                        selectModel(model.id);
                     });
                     dropdownContainer.appendChild(item);
                 });
@@ -581,7 +621,7 @@ function populateForm(config) {
     // 如果存在模型特定策略，则填充
     if (config.api_proxy.model_key_strategies) {
         modelKeyStrategies = config.api_proxy.model_key_strategies;
-        console.log('从API代理加载模型策略:', modelKeyStrategies);
+        //console.log('从API代理加载模型策略:', modelKeyStrategies);
         updateModelStrategiesTable();
     } else {
         console.log('从API代理没有找到模型策略，尝试从APP读取');
@@ -629,6 +669,8 @@ function populateForm(config) {
     setValue('auto-update', config.app[AUTO_UPDATE_INTERVAL]);
     setValue('stats-refresh', config.app[STATS_REFRESH_INTERVAL]);
     setValue('rate-refresh', config.app[RATE_REFRESH_INTERVAL]);
+    setValue('auto-delete-zero-balance', config.app[AUTO_DELETE_ZERO_BALANCE_KEYS]);
+    setValue('refresh-used-keys-interval', config.app[REFRESH_USED_KEYS_INTERVAL]);
     
     // 日志设置
     setValue('log-max-size', config.log.max_size_mb);
@@ -680,26 +722,37 @@ function updateModelStrategiesTable() {
 }
 
 /**
- * 获取策略文本描述
- * @param {number} strategy - 策略ID
- * @returns {string} 策略描述
+ * 获取策略文本
+ * @param {number} strategy - 策略id
+ * @returns {string} - 策略文本
  */
 function getStrategyText(strategy) {
     switch (parseInt(strategy)) {
-        case 1: return '策略1 - 高成功率';
-        case 2: return '策略2 - 高分数';
-        case 3: return '策略3 - 低RPM';
-        case 4: return '策略4 - 低TPM';
-        case 5: return '策略5 - 高余额';
-        case 6: return '策略6 - 普通（默认）';
-        default: return `未知策略(${strategy})`;
+        case 1:
+            return '策略1 - 高成功率';
+        case 2:
+            return '策略2 - 高分数';
+        case 3:
+            return '策略3 - 低RPM';
+        case 4:
+            return '策略4 - 低TPM';
+        case 5:
+            return '策略5 - 高余额';
+        case 6:
+            return '策略6 - 普通';
+        case 7:
+            return '策略7 - 低余额';
+        case 8:
+            return '策略8 - 免费';
+        default:
+            return '未知策略';
     }
 }
 
 /**
  * 编辑模型策略
  * @param {string} modelName - 模型名称
- * @param {number} strategy - 当前策略ID
+ * @param {number} strategy - 当前策略id
  */
 function editModelStrategy(modelName, strategy) {
     const modelNameElement = document.getElementById('new-model-name');
@@ -713,7 +766,7 @@ function editModelStrategy(modelName, strategy) {
         searchInput.value = modelName;
         
         // 更新下拉选项并选中对应的选项
-        if (allModelsList.includes(modelName)) {
+        if (allModelsList.some(model => model.id === modelName)) {
             // 如果在模型列表中找到了
             const option = Array.from(modelNameElement.options).find(opt => opt.value === modelName);
             if (option) {
@@ -780,83 +833,86 @@ function editModelStrategy(modelName, strategy) {
  * 添加模型策略
  */
 function addModelStrategy() {
-    const modelNameElement = document.getElementById('new-model-name');
-    const strategySelect = document.getElementById('new-model-strategy');
+    // 获取模型名称和策略
+    const modelNameInput = document.getElementById('new-model-name');
+    const modelStrategySelect = document.getElementById('new-model-strategy');
+    
+    if (!modelNameInput || !modelStrategySelect) {
+        showToast('找不到必要的表单元素', 'error');
+        return;
+    }
+
+    const modelName = modelNameInput.value;
+    if (!modelName || modelName.trim() === '') {
+        showToast('请选择或输入模型名称', 'warning');
+        return;
+    }
+
+    let strategyId = parseInt(modelStrategySelect.value);
+    
+    // 如果没有选择策略，根据模型类型设置默认策略
+    if (isNaN(strategyId) || strategyId <= 0) {
+        strategyId = getDefaultStrategy(modelName);
+    }
+
+    // 检查是否已有相同的模型策略配置
+    const existingRow = document.querySelector(`#model-strategies-body tr[data-model="${modelName}"]`);
+    if (existingRow) {
+        // 如果已存在，显示编辑面板
+        editModelStrategy(modelName, strategyId);
+        showToast('此模型已有策略配置，已切换到编辑模式', 'info');
+        return;
+    }
+
+    // 检查是否处于编辑模式
     const addButton = document.getElementById('add-model-strategy');
-    const searchInput = document.getElementById('model-search-input');
+    const isEditing = addButton.hasAttribute('data-editing');
     
-    // 获取模型名称，兼容下拉列表和文本输入框两种情况
-    let modelName = '';
-    if (searchInput) {
-        // 如果使用的是搜索框
-        modelName = searchInput.value.trim();
-    } else if (modelNameElement.tagName.toLowerCase() === 'select') {
-        // 如果是下拉列表
-        modelName = modelNameElement.value.trim();
-    } else {
-        // 如果是文本框
-        modelName = modelNameElement.value.trim();
-    }
-    
-    const strategy = strategySelect.value;
-    
-    // 验证模型名称不能为空
-    if (!modelName) {
-        showToast('请选择或输入模型名称', 'error');
-        return;
-    }
-    
-    // 检查是否在编辑模式
-    const editingModelName = addButton.getAttribute('data-editing');
-    
-    // 如果不是编辑模式，验证模型是否在列表中
-    if (!editingModelName && !allModelsList.includes(modelName)) {
-        showToast(`模型 "${modelName}" 不在当前模型列表中，无法添加`, 'error');
-        return;
-    }
-    
-    if (editingModelName) {
-        // 如果模型名称已更改，则删除旧记录
-        if (editingModelName !== modelName) {
-            delete modelKeyStrategies[editingModelName];
+    // 如果处于编辑模式，先删除旧策略
+    if (isEditing) {
+        const oldModelName = addButton.getAttribute('data-editing');
+        if (oldModelName !== modelName) {
+            delete modelKeyStrategies[oldModelName];
         }
-        
-        // 清除编辑状态
-        addButton.removeAttribute('data-editing');
+        // 重置按钮状态
         addButton.textContent = '添加';
         addButton.classList.remove('btn-save-modify');
+        addButton.removeAttribute('data-editing');
         
-        // 解除搜索框的只读状态
+        // 解除搜索框的只读状态（如果存在）
+        const searchInput = document.getElementById('model-search-input');
         if (searchInput) {
             searchInput.readOnly = false;
             searchInput.style.backgroundColor = '';
             searchInput.style.cursor = '';
         }
     }
+
+    // 更新全局变量
+    modelKeyStrategies[modelName] = strategyId;
     
-    // 添加到模型策略对象
-    modelKeyStrategies[modelName] = parseInt(strategy);
-    
-    // 更新表格
+    // 先更新UI
     updateModelStrategiesTable();
     
-    // 重置输入
-    if (searchInput) {
-        searchInput.value = '';
-        // 聚焦到搜索框
-        searchInput.focus();
-    } else if (modelNameElement.tagName.toLowerCase() === 'select') {
-        modelNameElement.selectedIndex = 0;
-    } else {
-        // 如果是文本框，清空输入
-        modelNameElement.value = '';
-    }
-    
-    // 重置策略选择
-    strategySelect.selectedIndex = 0;
-    
-    // 显示成功消息
-    showToast(`已${editingModelName ? '更新' : '添加'} ${modelName} 的策略配置`, 'success');
+    // API调用保存策略
+    updateModelStrategyInDatabase(modelName, strategyId)
+        .then(response => {
+            if (response.success) {
+                showToast(`已添加 ${modelName} 的策略配置`, 'success');
+            } else {
+                // 如果保存到数据库失败，回滚UI变更
+                delete modelKeyStrategies[modelName];
+                updateModelStrategiesTable();
+                showToast(`添加失败: ${response.message}`, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('添加模型策略失败:', error);
+            // 如果发生错误，也回滚UI变更
+            delete modelKeyStrategies[modelName];
+            updateModelStrategiesTable();
+            showToast(`添加失败: ${error.message}`, 'error');
+        });
 }
 
 /**
@@ -870,13 +926,72 @@ function removeModelStrategy(modelName) {
     // 更新表格
     updateModelStrategiesTable();
     
-    // 显示成功消息
-    showToast(`已移除 ${modelName} 的策略配置`, 'success');
+    // 从数据库中删除模型策略记录
+    deleteModelStrategyFromDatabase(modelName)
+        .then(response => {
+            if (response.success) {
+                showToast(`已完全移除 ${modelName} 的策略配置，并从数据库中删除`, 'success');
+            } else {
+                showToast(`界面上已移除策略，但从数据库删除失败: ${response.message}`, 'warning');
+            }
+        })
+        .catch(error => {
+            console.error('移除模型策略失败:', error);
+            showToast(`界面上已移除策略，但从数据库删除失败`, 'warning');
+        });
+}
+
+/**
+ * 从数据库中删除模型策略
+ * @param {string} modelId - 模型id
+ * @returns {Promise} - 删除结果的Promise
+ */
+function deleteModelStrategyFromDatabase(modelId) {
+    return fetch('/models/strategy', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model_id: modelId
+        })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+    });
+}
+
+/**
+ * 更新数据库中的模型策略
+ * @param {string} modelId - 模型id
+ * @param {number} strategyId - 策略id
+ * @returns {Promise} - 更新结果的Promise
+ */
+function updateModelStrategyInDatabase(modelId, strategyId) {
+    return fetch('/models/strategy', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model_id: modelId,
+            strategy_id: strategyId
+        })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+    });
 }
 
 /**
  * 设置表单元素的值
- * @param {string} id - 元素ID
+ * @param {string} id - 元素id
  * @param {any} value - 要设置的值
  */
 function setValue(id, value) {
@@ -895,7 +1010,7 @@ function setValue(id, value) {
 
 /**
  * 获取表单元素的值
- * @param {string} id - 元素ID
+ * @param {string} id - 元素id
  * @returns {any} 元素的值
  */
 function getValue(id) {
@@ -982,7 +1097,9 @@ function saveSettings(callback) {
             tpm_weight: getValue('tpm-weight'),
             [AUTO_UPDATE_INTERVAL]: getValue('auto-update'),
             [STATS_REFRESH_INTERVAL]: getValue('stats-refresh'),
-            [RATE_REFRESH_INTERVAL]: getValue('rate-refresh')
+            [RATE_REFRESH_INTERVAL]: getValue('rate-refresh'),
+            [AUTO_DELETE_ZERO_BALANCE_KEYS]: getValue('auto-delete-zero-balance'),
+            [REFRESH_USED_KEYS_INTERVAL]: getValue('refresh-used-keys-interval')
         },
         log: {
             max_size_mb: getValue('log-max-size'),
@@ -1119,4 +1236,295 @@ function parseStatusCodes(codesStr) {
 function collectModelStrategies() {
     // 直接返回全局变量中的模型策略
     return modelKeyStrategies;
+}
+
+/**
+ * 导出系统设置
+ * 将当前系统配置导出为JSON文件下载
+ */
+function exportSettings() {
+    try {
+        // 显示正在导出的消息
+        showToast('正在准备导出设置...', 'info');
+        
+        // 从服务器获取当前设置
+        fetch('/settings/config')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('获取配置失败，状态码: ' + response.status);
+                }
+                return response.json();
+            })
+            .then(config => {
+                // 添加版本标记，用于将来兼容性检查
+                config.export_version = "v1.3.8"; // 根据当前版本号调整
+                config.export_date = new Date().toISOString();
+                
+                // 将配置转换为JSON字符串
+                const configJson = JSON.stringify(config, null, 2);
+                
+                // 创建Blob对象
+                const blob = new Blob([configJson], { type: 'application/json' });
+                
+                // 创建下载链接
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                
+                // 使用日期和时间生成文件名
+                const now = new Date();
+                const dateTime = now.toISOString().replace(/[:.]/g, '-').substring(0, 19);
+                a.download = `flowsilicon_settings_${dateTime}.json`;
+                
+                // 添加到文档并触发点击事件
+                document.body.appendChild(a);
+                a.click();
+                
+                // 清理
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    showToast('设置已成功导出', 'success');
+                }, 100);
+            })
+            .catch(error => {
+                console.error('导出设置失败:', error);
+                showToast('导出设置失败: ' + error.message, 'error');
+            });
+    } catch (err) {
+        console.error('导出过程中发生异常:', err);
+        showToast('导出过程中发生异常: ' + err.message, 'error');
+    }
+}
+
+/**
+ * 导入系统设置
+ * @param {File} file - 要导入的设置文件
+ */
+function importSettings(file) {
+    try {
+        // 显示正在导入的消息
+        showToast('正在导入设置...', 'info');
+        
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+            try {
+                // 解析导入的JSON文件
+                const importedConfig = JSON.parse(event.target.result);
+                
+                // 检查是否是有效的配置文件
+                if (!importedConfig.server || !importedConfig.app) {
+                    throw new Error('无效的配置文件格式');
+                }
+                
+                // 获取当前配置作为基础，导入的设置将与当前设置合并
+                fetch('/settings/config')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('获取当前配置失败，状态码: ' + response.status);
+                        }
+                        return response.json();
+                    })
+                    .then(currentConfig => {
+                        // 进行配置合并，保持兼容性
+                        const mergedConfig = mergeConfigs(currentConfig, importedConfig);
+                        
+                        // 将合并后的配置发送到服务器
+                        fetch('/settings/config', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(mergedConfig)
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('导入失败，状态码: ' + response.status);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            showToast('设置已成功导入', 'success');
+                            
+                            // 重新加载设置显示
+                            loadSettings();
+                            
+                            // 如果存在版本差异，提示用户
+                            if (importedConfig.export_version && importedConfig.export_version !== "v1.3.8") {
+                                showToast(`注意：导入的配置来自版本 ${importedConfig.export_version}，可能存在兼容性差异`, 'info');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('导入过程中发生错误:', error);
+                            showToast('导入过程中发生错误: ' + error.message, 'error');
+                        });
+                    })
+                    .catch(error => {
+                        console.error('获取当前配置失败:', error);
+                        showToast('获取当前配置失败: ' + error.message, 'error');
+                    });
+            } catch (error) {
+                console.error('解析配置文件失败:', error);
+                showToast('解析配置文件失败: ' + error.message, 'error');
+            }
+        };
+        
+        reader.onerror = function() {
+            console.error('读取文件失败');
+            showToast('读取文件失败', 'error');
+        };
+        
+        // 开始读取文件
+        reader.readAsText(file);
+    } catch (err) {
+        console.error('导入过程中发生异常:', err);
+        showToast('导入过程中发生异常: ' + err.message, 'error');
+    }
+}
+
+/**
+ * 合并配置，保持兼容性
+ * @param {Object} currentConfig - 当前系统配置
+ * @param {Object} importedConfig - 导入的配置
+ * @returns {Object} 合并后的配置
+ */
+function mergeConfigs(currentConfig, importedConfig) {
+    // 创建结果对象，基于当前配置
+    const result = JSON.parse(JSON.stringify(currentConfig));
+    
+    // 递归合并配置对象
+    function deepMerge(target, source) {
+        // 遍历源对象的所有属性
+        for (const key in source) {
+            // 如果源对象的属性存在且是对象
+            if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+                // 如果目标对象没有该属性或类型不同，创建新对象
+                if (!target[key] || typeof target[key] !== 'object') {
+                    target[key] = {};
+                }
+                // 递归合并
+                deepMerge(target[key], source[key]);
+            } else {
+                // 非对象属性，直接覆盖
+                target[key] = source[key];
+            }
+        }
+    }
+    
+    // 合并各个配置部分
+    
+    // 服务器设置
+    if (importedConfig.server) {
+        deepMerge(result.server, importedConfig.server);
+    }
+    
+    // API代理设置
+    if (importedConfig.api_proxy) {
+        if (!result.api_proxy) {
+            result.api_proxy = {};
+        }
+        
+        // 基础URL
+        if (importedConfig.api_proxy.base_url) {
+            result.api_proxy.base_url = importedConfig.api_proxy.base_url;
+        }
+        
+        // 模型密钥策略
+        if (importedConfig.api_proxy.model_key_strategies) {
+            result.api_proxy.model_key_strategies = importedConfig.api_proxy.model_key_strategies;
+            // 同时更新全局变量
+            modelKeyStrategies = importedConfig.api_proxy.model_key_strategies;
+        }
+        
+        // 重试设置
+        if (importedConfig.api_proxy.retry) {
+            if (!result.api_proxy.retry) {
+                result.api_proxy.retry = {};
+            }
+            deepMerge(result.api_proxy.retry, importedConfig.api_proxy.retry);
+        }
+    }
+    
+    // 代理设置
+    if (importedConfig.proxy) {
+        deepMerge(result.proxy, importedConfig.proxy);
+    }
+    
+    // 应用设置
+    if (importedConfig.app) {
+        if (!result.app) {
+            result.app = {};
+        }
+        
+        // 遍历导入配置中的应用设置
+        for (const key in importedConfig.app) {
+            // 保持兼容性：针对不同版本可能的变更，添加特殊处理
+            if (key === 'model_key_strategies' && !result.api_proxy.model_key_strategies) {
+                // 如果新版本将策略从app移到了api_proxy，则自动迁移
+                if (!result.api_proxy) {
+                    result.api_proxy = {};
+                }
+                result.api_proxy.model_key_strategies = importedConfig.app.model_key_strategies;
+                // 同时更新全局变量
+                modelKeyStrategies = importedConfig.app.model_key_strategies;
+            } else {
+                // 常规属性直接复制
+                result.app[key] = importedConfig.app[key];
+            }
+        }
+    }
+    
+    // 日志设置
+    if (importedConfig.log) {
+        if (!result.log) {
+            result.log = {};
+        }
+        deepMerge(result.log, importedConfig.log);
+    }
+    
+    // 跳过导出相关的元数据字段
+    delete result.export_version;
+    delete result.export_date;
+    
+    return result;
+}
+
+// 将模型名称标记为免费或付费
+function updateModelNameDisplay() {
+    const modelSelect = document.getElementById('new-model-name');
+    const options = modelSelect.options;
+    
+    for (let i = 0; i < options.length; i++) {
+        const option = options[i];
+        const modelName = option.value;
+        
+        // 检查是否在allModelsList中有这个模型
+        const modelInfo = allModelsList.find(model => model.id === modelName);
+        if (modelInfo && modelInfo.is_free) {
+            option.innerHTML = `${modelName} <span class="badge bg-success">免费</span>`;
+        }
+    }
+}
+
+// 根据模型是否为免费模型返回默认策略id
+function getDefaultStrategy(modelName) {
+    // 检查模型是否在免费模型列表中
+    const modelInfo = allModelsList.find(model => model.id === modelName);
+    return modelInfo && modelInfo.is_free ? 8 : 6; // 免费模型使用策略8，非免费模型使用策略6
+}
+
+// 当选择模型时自动设置默认策略
+function onModelSelectionChange() {
+    const modelSelect = document.getElementById('new-model-name');
+    const strategySelect = document.getElementById('new-model-strategy');
+    
+    if (!modelSelect || !strategySelect) return;
+    
+    const selectedModel = modelSelect.value;
+    if (selectedModel) {
+        const defaultStrategy = getDefaultStrategy(selectedModel);
+        strategySelect.value = defaultStrategy;
+    }
 }

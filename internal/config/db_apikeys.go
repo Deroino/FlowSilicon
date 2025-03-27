@@ -104,7 +104,7 @@ func LoadApiKeysFromDB() error {
 		}
 	}
 
-	// 查询所有密钥
+	// 查询所有密钥，包括被逻辑删除的密钥
 	rows, err := db.Query(`SELECT 
 		key, balance, last_used, total_calls, success_calls, success_rate, 
 		consecutive_failures, disabled, disabled_at, last_tested, rpm, tpm, score, is_delete, is_used 
@@ -154,7 +154,7 @@ func LoadApiKeysFromDB() error {
 			continue
 		}
 
-		// 添加到加载的密钥列表
+		// 添加到加载的密钥列表，包括被标记为删除的密钥
 		loadedKeys = append(loadedKeys, key)
 	}
 
@@ -178,8 +178,21 @@ func LoadApiKeysFromDB() error {
 		apiKeys[i].RecentRequests = make([]RequestStats, 0)
 	}
 
-	logger.Info("已从数据库加载 %d 个API密钥", len(apiKeys))
+	logger.Info("已从数据库加载 %d 个API密钥（包括 %d 个逻辑删除的密钥）",
+		len(apiKeys),
+		countDeletedKeys(apiKeys))
 	return nil
+}
+
+// countDeletedKeys 计算被标记为删除的密钥数量
+func countDeletedKeys(keys []ApiKey) int {
+	count := 0
+	for _, key := range keys {
+		if key.Delete {
+			count++
+		}
+	}
+	return count
 }
 
 // SaveApiKeysToDB 将API密钥保存到数据库
@@ -296,34 +309,5 @@ func AddApiKeyToDB(key ApiKey) error {
 	}
 
 	logger.Info("已添加API密钥到数据库: %s", MaskKey(key.Key))
-	return nil
-}
-
-// DeleteApiKeyFromDB 从数据库中删除API密钥
-func DeleteApiKeyFromDB(keyValue string) error {
-	if db == nil {
-		logger.Error("数据库连接未初始化，请先调用InitConfigDB")
-		return errors.New("数据库连接未初始化")
-	}
-
-	// 执行删除
-	result, err := db.Exec("DELETE FROM "+apikeysTableName+" WHERE key = ?", keyValue)
-	if err != nil {
-		logger.Error("从数据库删除API密钥失败: %v", err)
-		return err
-	}
-
-	// 检查是否有行被删除
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if affected > 0 {
-		logger.Info("已从数据库删除API密钥: %s", MaskKey(keyValue))
-	} else {
-		logger.Warn("未找到要删除的API密钥: %s", MaskKey(keyValue))
-	}
-
 	return nil
 }

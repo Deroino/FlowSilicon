@@ -343,3 +343,23 @@
     font-weight: 500;
     background-color: rgba(75, 108, 183, 0.05);
 }
+
+/* 导入/导出按钮样式 */
+#export-settings, #import-settings {
+    transition: all 0.3s ease;
+}
+
+#export-settings:hover, #import-settings:hover {
+    background-color: #f6f9ff;
+    border-color: #4b6cb7;
+    color: #4b6cb7;
+}
+
+#export-settings i, #import-settings i {
+    margin-right: 5px;
+}
+
+/* 文件上传样式 */
+#settings-file-input {
+    display: none;
+}

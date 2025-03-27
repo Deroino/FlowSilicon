@@ -1,6 +1,6 @@
 /*
 *
-@author: AI
+@author: Hanhai
 @since: 2025/3/16 21:57:52
 @desc:
 *
@@ -9,14 +9,13 @@ package web
 
 import (
 	"embed"
+	"flowsilicon/internal/config"
 	"flowsilicon/internal/proxy"
 	"html/template"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-
-	"flowsilicon/internal/config"
 )
 
 //go:embed templates/*.html
@@ -32,6 +31,30 @@ func SetupApiProxy(router *gin.Engine) {
 
 	// 添加对 OpenAI 格式 API 的支持
 	router.Any("/v1/*path", proxy.HandleOpenAIProxy)
+
+	// 添加对无版本号路径的支持
+	// 聊天完成
+	router.Any("/chat", proxy.HandleOpenAIProxy)
+	router.Any("/chat/*path", proxy.HandleOpenAIProxy)
+
+	// 文本完成
+	router.Any("/completions", proxy.HandleOpenAIProxy)
+
+	// 嵌入
+	router.Any("/embeddings", proxy.HandleOpenAIProxy)
+
+	// 图像生成
+	router.Any("/images", proxy.HandleOpenAIProxy)
+	router.Any("/images/*path", proxy.HandleOpenAIProxy)
+
+	// 模型列表
+	router.Any("/models", proxy.HandleOpenAIProxy)
+
+	// 重排序
+	router.Any("/rerank", proxy.HandleOpenAIProxy)
+
+	// 用户信息
+	router.Any("/user/info", proxy.HandleOpenAIProxy)
 }
 
 // SetupKeysAPI 设置API密钥相关路由
@@ -76,7 +99,7 @@ func SetupWebServer(router *gin.Engine) {
 		c.Redirect(http.StatusMovedPermanently, "/static-fs/img/favicon_32.ico")
 	})
 
-	// 首页
+	// 页面路由
 	router.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "index.html", gin.H{
 			"title":                  config.GetConfig().App.Title,
@@ -95,6 +118,9 @@ func SetupWebServer(router *gin.Engine) {
 		})
 	})
 
+	// 模型管理页面
+	router.GET("/model", handleModelManagementPage)
+
 	// API 密钥管理
 	router.GET("/keys", handleListKeys)
 	router.POST("/keys", handleAddKey)
@@ -106,7 +132,20 @@ func SetupWebServer(router *gin.Engine) {
 	router.POST("/keys/:key/enable", handleEnableKey)
 	router.POST("/keys/:key/disable", handleDisableKey)
 	router.DELETE("/keys/zero-balance", handleDeleteZeroBalanceKeys)
+	router.DELETE("/keys/low-balance/:threshold", handleDeleteLowBalanceKeys)
 	router.GET("/test-key", handleGetTestKey)
+
+	// 设置页面的-模型管理API
+	router.GET("/models/list", getModelsHandler)
+	router.POST("/models/sync", syncModelsHandler)
+	router.POST("/models/strategy", updateModelStrategyHandler)
+	router.DELETE("/models/strategy", deleteModelStrategyHandler)
+
+	// 模型管理页面-模型管理API
+	router.GET("/models-api/list", getModelsAPIHandler)
+	router.GET("/models-api/status", getModelsStatusHandler)
+	router.POST("/models-api/update", updateModelsHandler)
+	router.POST("/models-api/type", updateModelTypeHandler)
 
 	// API 密钥统计
 	router.GET("/stats", handleStats)

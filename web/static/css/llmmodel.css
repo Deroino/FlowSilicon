@@ -1,0 +1,271 @@
+/**
+ @author: AI
+ @since: 2025/3/26 12:34:00
+ @desc: 模型管理页面样式
+ **/
+
+.header {
+    margin-bottom: 2rem;
+    padding-top: 1rem;
+}
+
+.title-container {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.logo {
+    height: 40px;
+    margin-right: 1rem;
+}
+
+.card {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border: none;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    font-weight: 500;
+    padding: 0.75rem 1rem;
+}
+
+.search-filter {
+    width: 300px;
+}
+
+.model-filters {
+    padding: 10px 0;
+}
+
+.model-filters .btn-group {
+    margin-bottom: 10px;
+}
+
+table.table-hover tbody tr:hover {
+    background-color: #f6f9ff;
+}
+
+.table th {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #495057;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+.model-id {
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-type-badge {
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.type-1 {
+    background-color: #e6f7ff;
+    color: #1890ff;
+}
+
+.type-2 {
+    background-color: #f6ffed;
+    color: #52c41a;
+}
+
+.type-3 {
+    background-color: #fffbe6;
+    color: #faad14;
+}
+
+.type-4 {
+    background-color: #fff0f6;
+    color: #eb2f96;
+}
+
+.type-5 {
+    background-color: #f5f0ff;
+    color: #722ed1;
+}
+
+.type-6 {
+    background-color: #e6fffb;
+    color: #13c2c2;
+}
+
+.type-7 {
+    background-color: #fff1f0;
+    color: #f5222d;
+}
+
+.free-tag, .giftable-tag {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 2px;
+}
+
+.free-tag.yes {
+    background-color: #e6f7ff;
+    color: #1890ff;
+}
+
+.free-tag.no {
+    background-color: #f0f0f0;
+    color: #999;
+}
+
+.giftable-tag.yes {
+    background-color: #f6ffed;
+    color: #52c41a;
+}
+
+.giftable-tag.no {
+    background-color: #f0f0f0;
+    color: #999;
+}
+
+.strategy-tag {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    border-radius: 2px;
+    background-color: #f5f5f5;
+    color: #666;
+}
+
+.status-tag {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 2px;
+}
+
+.status-tag.enabled {
+    background-color: #f6ffed;
+    color: #52c41a;
+}
+
+.status-tag.disabled {
+    background-color: #fff1f0;
+    color: #f5222d;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 5px;
+}
+
+.action-buttons .btn {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+}
+
+.pagination-container {
+    padding: 10px 0;
+    border-top: 1px solid #e9ecef;
+}
+
+.pagination .page-link {
+    color: #6c757d;
+    border-color: #dee2e6;
+}
+
+.pagination .page-item.active .page-link {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    color: white;
+}
+
+.pagination .page-link:focus {
+    box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.25);
+}
+
+.page-info {
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+/* Toast通知样式 */
+.toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    min-width: 300px;
+    z-index: 1000;
+    border-radius: 5px;
+    box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    background-color: #fff;
+    border-left: 5px solid #007bff;
+}
+
+.toast.show {
+    opacity: 1;
+}
+
+.toast-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    background-color: rgba(255, 255, 255, 0.85);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+}
+
+.toast-body {
+    padding: 0.75rem;
+}
+
+.toast-success {
+    border-left-color: #28a745;
+}
+
+.toast-error {
+    border-left-color: #dc3545;
+}
+
+.toast-info {
+    border-left-color: #17a2b8;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .search-filter {
+        width: 100%;
+        margin-top: 10px;
+    }
+
+    .model-filters .btn-group {
+        flex-wrap: wrap;
+    }
+
+    .model-filters .btn {
+        margin-bottom: 5px;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+    }
+}
+
+/* 添加快捷键提示的样式 */
+.shortcut-hint {
+    font-size: 0.75rem;
+    color: #6c757d;
+    opacity: 0.8;
+    font-weight: normal;
+}

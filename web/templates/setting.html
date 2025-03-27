@@ -22,7 +22,7 @@
                 <h1>{{ .title }}</h1>
             </div>
             <div class="d-flex justify-content-end mb-3">
-                <button id="save-settings" class="btn btn-outline-secondary me-2">
+                <button id="save-settings" class="btn btn-outline-secondary me-2" title="快捷键: Ctrl+S">
                     <i class="bi bi-save"></i> 保存设置
                 </button>
                 <button id="restart-app" class="btn btn-outline-secondary me-2">
@@ -31,6 +31,9 @@
                 <button id="reload-settings" class="btn btn-outline-secondary me-2">
                     <i class="bi bi-arrow-clockwise"></i> 重新加载
                 </button>
+                <a href="/model" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-box-seam"></i> 模型管理
+                </a>
                 <button id="back-to-home" class="btn btn-outline-secondary" type="button">
                     <i class="bi bi-house"></i> 返回主页
                 </button>
@@ -42,6 +45,14 @@
                 <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5>系统设置</h5>
+                        <div>
+                            <button id="export-settings" class="btn btn-sm btn-outline-secondary ms-2">
+                                <i class="bi bi-upload"></i> 导出设置
+                            </button>
+                            <button id="import-settings" class="btn btn-sm btn-outline-secondary ms-2">
+                                <i class="bi bi-download"></i> 导入设置
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
                         <form id="settings-form">
@@ -144,20 +155,36 @@
                                 <div class="subsection">
                                     <h6><i class="bi bi-arrow-repeat"></i> 自动更新配置</h6>
                                     <div class="row">
-                                        <div class="col-md-4 mb-3">
+                                        <div class="col-md-6 mb-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="auto-delete-zero-balance" name="app.auto_delete_zero_balance_keys">
+                                                <label class="form-check-label" for="auto-delete-zero-balance">
+                                                    自动删除余额为0的密钥
+                                                </label>
+                                                <div class="form-text">勾选后，系统将自动删除检测到余额为0的密钥</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
                                             <label for="auto-update" class="form-label">API密钥状态自动更新间隔(秒)</label>
                                             <input type="number" class="form-control" id="auto-update" name="app.auto_update_interval">
-                                            <div class="form-text">密钥余额、状态等信息的自动刷新频率</div>
+                                            <div class="form-text">全部密钥余额、状态等信息的自动刷新频率</div>
                                         </div>
-                                        <div class="col-md-4 mb-3">
+                                        <div class="col-md-3 mb-3">
                                             <label for="stats-refresh" class="form-label">系统概要自动刷新间隔(秒)</label>
                                             <input type="number" class="form-control" id="stats-refresh" name="app.stats_refresh_interval">
                                             <div class="form-text">首页系统概要面板的自动刷新频率</div>
                                         </div>
-                                        <div class="col-md-4 mb-3">
+                                        <div class="col-md-3 mb-3">
                                             <label for="rate-refresh" class="form-label">速率监控自动刷新间隔(秒)</label>
                                             <input type="number" class="form-control" id="rate-refresh" name="app.rate_refresh_interval">
                                             <div class="form-text">RPM/TPM等速率指标的监控刷新频率</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="refresh-used-keys-interval" class="form-label">已使用密钥余额刷新间隔(分钟)</label>
+                                            <input type="number" class="form-control" id="refresh-used-keys-interval" name="app.refresh_used_keys_interval">
+                                            <div class="form-text">建议设置为60分钟或更长</div>
                                         </div>
                                     </div>
                                 </div>
@@ -219,6 +246,8 @@
                                             <li><strong>策略4 - 低TPM</strong>：优先选择每分钟令牌数(TPM)最低的密钥</li>
                                             <li><strong>策略5 - 高余额</strong>：优先选择余额最高的密钥</li>
                                             <li><strong>策略6 - 普通</strong>：简单轮询所有可用的密钥（默认策略）</li>
+                                            <li><strong>策略7 - 低余额</strong>：优先选择余额最低的密钥</li>
+                                            <li><strong>策略8 - 免费</strong>：先尝试使用已删除密钥，再尝试禁用密钥，再尝试未使用密钥，最后使用低余额策略(免费模型默认策略)</li>
                                         </ul>
                                     </div>
                                     
@@ -256,6 +285,8 @@
                                                 <option value="4">策略4 - 低TPM</option>
                                                 <option value="5">策略5 - 高余额</option>
                                                 <option value="6" selected>策略6 - 普通</option>
+                                                <option value="7">策略7 - 低余额</option>
+                                                <option value="8">策略8 - 免费</option>
                                             </select>
                                         </div>
                                         <div class="col-md-2 mb-2">
@@ -313,7 +344,7 @@
             <p class="text-muted mb-0">@Hanhai 2025</p>
             <p class="text-muted mb-0">
                 <a href="https://github.com/HanHai-Space/FlowSilicon" target="_blank" rel="noopener noreferrer">
-                    <i class="bi bi-github"></i> Github 仓库
+                    <i class="bi bi-github"></i> Github 
                 </a>
             </p>
         </div>
@@ -321,5 +352,8 @@
 
     <!-- 添加Toast容器 -->
     <div class="toast-container" id="toast-container"></div>
+    
+    <!-- 隐藏的文件输入元素 -->
+    <input type="file" id="settings-file-input" accept=".json" style="display: none;" />
 </body>
 </html>

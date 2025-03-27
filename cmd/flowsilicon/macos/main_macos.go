@@ -1,6 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/23 22:30:16
+  @since: 2025/3/25 20:23:12
   @desc:
 **/
 
@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/getlantern/systray"
 	"github.com/gin-gonic/gin"
 )
 
@@ -29,6 +30,10 @@ var (
 	serverPort int
 	// 版本号
 	Version = "1.3.8"
+	// 控制程序退出的通道
+	quitChan chan struct{} = make(chan struct{})
+	// 控制是否真正退出程序
+	realQuit bool = false
 	// 程序所在目录
 	executableDir string
 )
@@ -36,27 +41,29 @@ var (
 func main() {
 	// 获取可执行文件所在目录
 	var err error
+
 	executableDir, err = getExecutableDir()
 	if err != nil {
 		fmt.Printf("无法获取可执行文件目录: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 初始化日志
-	err = logger.InitLogger()
-	if err != nil {
-		fmt.Printf("初始化日志系统失败: %v\n", err)
-		os.Exit(1)
-	}
+	// macOS下不需要检测GUI模式，始终当作GUI模式处理
+	isGui := true
+	logger.SetGuiMode(isGui)
 
-	logger.Info("程序以控制台模式启动，日志同时写入控制台和文件")
+	// 初始化日志
+	logger.InitLogger()
+
+	// 记录启动模式
+	logger.Info("程序以GUI模式启动，日志仅写入文件")
 	logger.Info("程序运行目录: %s", executableDir)
 	// 添加更多路径信息用于调试
 	logger.Info("日志目录绝对路径: %s", getAbsolutePath("logs"))
 	logger.Info("当前工作目录: %s", getCurrentDir())
 
 	// 确保必要的目录结构存在
-	if err := ensureDirectoriesExist(); err != nil {
+	if err = ensureDirectoriesExist(); err != nil {
 		logger.Error("确保目录结构存在时出错: %v", err)
 	} else {
 		logger.Info("已确保必要的目录结构存在")
@@ -93,17 +100,17 @@ func main() {
 		logger.Info("版本号 '%s' 已保存到数据库", versionToSave)
 	}
 
-	// 检查并插入默认配置
+	// 检查配置是否存在，如果不存在则插入默认配置
 	err = config.EnsureDefaultConfig(dbPath)
 	if err != nil {
 		logger.Error("确保默认配置失败: %v", err)
 		return
 	}
 
-	// 确保apikeys表存在
+	// 确保API密钥表存在
 	err = config.EnsureApikeys(dbPath)
 	if err != nil {
-		logger.Error("创建apikeys表失败: %v", err)
+		logger.Error("确保API密钥表存在失败: %v", err)
 		// 继续执行，因为这不是致命错误
 	} else {
 		logger.Info("确保API密钥表存在成功")
@@ -112,8 +119,9 @@ func main() {
 	// 设置数据文件路径
 	config.SetDailyFilePath(getAbsolutePath("data/daily.json"))
 
-	// 初始化每日统计数据
-	if err := config.InitDailyStats(); err != nil {
+	// 确保初始化每日统计数据
+	err = config.InitDailyStats()
+	if err != nil {
 		logger.Error("初始化每日统计数据失败: %v", err)
 		// 继续执行，因为这不是致命错误
 	} else {
@@ -127,7 +135,7 @@ func main() {
 		return
 	}
 
-	// 确保cfg不为nil后再使用
+	// 确保appConfig不为nil后再使用
 	if cfg == nil {
 		logger.Error("配置加载后为空")
 		return
@@ -146,6 +154,22 @@ func main() {
 		config.UpdateConfig(cfg)
 		config.SaveConfigToDB()
 		logger.Info("已从数据库更新应用标题为: %s", cfg.App.Title)
+	}
+
+	// 加载API密钥
+	err = config.LoadApiKeys()
+	if err != nil {
+		logger.Error("从数据库加载API密钥失败: %v", err)
+		// 继续执行，因为这不是致命错误
+	} else {
+		logger.Info("已成功从数据库加载API密钥")
+
+		// 强制刷新所有API密钥的余额
+		if refreshErr := key.ForceRefreshAllKeysBalance(); refreshErr != nil {
+			logger.Error("强制刷新API密钥余额失败: %v", refreshErr)
+		} else {
+			logger.Info("已完成API密钥余额的强制刷新")
+		}
 	}
 
 	// 添加调试信息
@@ -176,21 +200,6 @@ func main() {
 		// 输出确认信息
 		logger.Info("日志清理任务已在后台启动，日志等级设置为：%s", logLevel)
 	}()
-
-	// 加载API密钥
-	if err := config.LoadApiKeysFromDB(); err != nil {
-		logger.Error("加载API密钥失败: %v", err)
-		// 继续执行，因为这不是致命错误
-	} else {
-		logger.Info("API密钥加载成功")
-
-		// 强制刷新所有API密钥的余额
-		if refreshErr := key.ForceRefreshAllKeysBalance(); refreshErr != nil {
-			logger.Error("强制刷新API密钥余额失败: %v", refreshErr)
-		} else {
-			logger.Info("已完成API密钥余额的强制刷新")
-		}
-	}
 
 	// 启动API密钥管理器
 	key.StartKeyManager()
@@ -230,12 +239,19 @@ func main() {
 	// 等待服务器启动
 	time.Sleep(500 * time.Millisecond)
 
-	// 打印访问信息
-	logger.Info("流动硅基服务已启动，请访问 http://localhost:%d", serverPort)
+	// 自动打开浏览器
+	openBrowser(fmt.Sprintf("http://localhost:%d", serverPort))
 
-	// 等待信号
-	<-sigChan
-	logger.Info("接收到关闭信号，正在关闭服务器...")
+	// 启动系统托盘
+	go systray.Run(onReady, onExit)
+
+	// 等待信号或退出通道
+	select {
+	case <-sigChan:
+		logger.Info("接收到关闭信号，正在关闭服务器...")
+	case <-quitChan:
+		logger.Info("接收到退出请求，正在关闭服务器...")
+	}
 
 	// 确保所有资源被正确关闭
 	logger.Info("正在关闭所有资源...")
@@ -303,35 +319,12 @@ func openBrowser(url string) {
 
 	logger.Info("正在打开浏览器访问: %s", url)
 
-	// Linux下使用xdg-open打开浏览器
-	err = exec.Command("xdg-open", url).Start()
+	// macOS使用open命令打开URL
+	err = exec.Command("open", url).Start()
 
 	if err != nil {
 		logger.Error("打开浏览器失败: %v", err)
 	}
-}
-
-// ensureConfigExists 确保配置文件存在，如果不存在则创建
-func ensureConfigExists(configPath string) error {
-	// 检查配置文件是否存在
-	_, err := os.Stat(configPath)
-	if err == nil {
-		// 配置文件已存在
-		return nil
-	}
-
-	if !os.IsNotExist(err) {
-		// 发生了其他错误
-		return fmt.Errorf("检查配置文件时出错: %v", err)
-	}
-
-	// 确保配置目录存在
-	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("创建配置目录失败: %v", err)
-	}
-
-	return nil
 }
 
 // ensureDirectoriesExist 确保必要的目录结构存在
@@ -349,6 +342,89 @@ func ensureDirectoriesExist() error {
 	}
 
 	return nil
+}
+
+// 系统托盘初始化
+func onReady() {
+	// 设置托盘图标和标题
+	iconPath := getAbsolutePath("web/static/img/favicon_32.ico")
+	if _, err := os.Stat(iconPath); err == nil {
+		// 图标文件存在，读取图标
+		icon, err := os.ReadFile(iconPath)
+		if err == nil {
+			systray.SetIcon(icon)
+		} else {
+			logger.Error("读取图标文件失败: %v", err)
+		}
+	}
+
+	// 获取版本号
+	dbVersion := config.GetVersion()
+	if dbVersion == "" {
+		// 如果数据库中没有版本号，使用硬编码的版本号
+		dbVersion = Version
+		// 确保版本号格式一致
+		if !strings.HasPrefix(dbVersion, "v") {
+			dbVersion = "v" + dbVersion
+		}
+	}
+
+	// 正常显示图标和标题
+	systray.SetTitle("流动硅基")
+	systray.SetTooltip("流动硅基 FlowSilicon " + dbVersion)
+
+	// 添加菜单项
+	mOpen := systray.AddMenuItem("打开界面", "打开Web界面")
+	systray.AddSeparator()
+
+	// 新增重启程序菜单项
+	mRestart := systray.AddMenuItem("重启程序", "重新启动程序")
+
+	// macOS中通常不使用开机自启菜单项，可以通过系统设置进行配置
+	// 所以这里我们不添加开机自启菜单项
+
+	systray.AddSeparator()
+	mQuit := systray.AddMenuItem("退出程序", "退出程序")
+
+	// 处理菜单点击事件
+	go func() {
+		for {
+			select {
+			case <-mOpen.ClickedCh:
+				// 打开Web界面
+				openBrowser(fmt.Sprintf("http://localhost:%d", serverPort))
+			case <-mRestart.ClickedCh:
+				// 重启程序
+				logger.Info("用户通过托盘菜单请求重启程序")
+				restartProgram()
+			case <-mQuit.ClickedCh:
+				// 退出程序
+				logger.Info("用户通过托盘菜单退出程序")
+				realQuit = true // 设置真正退出标志
+				systray.Quit()
+				return
+			}
+		}
+	}()
+}
+
+// 系统托盘退出
+func onExit() {
+	// 如果是真正的退出请求，则退出程序
+	if realQuit {
+		// 保存API密钥
+		config.SaveApiKeys()
+		// 关闭配置数据库连接
+		config.CloseConfigDB()
+		// 关闭模型数据库
+		model.CloseModelDB()
+		logger.Info("程序已退出")
+		// 关闭退出通道，通知主程序退出
+		close(quitChan)
+	} else {
+		// 如果不是真正退出，只是重启systray（比如在隐藏/显示图标时）
+		logger.Info("系统托盘重启中...")
+	}
 }
 
 // logModelStrategies 输出所有已配置的模型策略
@@ -388,115 +464,44 @@ func logModelStrategies() {
 	logger.Info("==========================")
 }
 
-// reloadConfig 重新加载配置文件
-func reloadConfig() {
-	logger.Info("正在重新加载配置")
-
-	// 加载配置
-	cfg, err := config.LoadConfigFromDB()
-	if err != nil {
-		logger.Error("从数据库重新加载配置失败: %v", err)
-		return
-	}
-
-	// 确保cfg不为nil后再使用
-	if cfg == nil {
-		logger.Error("配置加载后为空")
-		return
-	}
-
-	// 获取数据库中的版本号，并更新应用标题
-	dbVersion := config.GetVersion()
-	if dbVersion != "" {
-		// 确保版本号格式一致
-		if !strings.HasPrefix(dbVersion, "v") {
-			dbVersion = "v" + dbVersion
-		}
-		// 更新App.Title中的版本号
-		cfg.App.Title = fmt.Sprintf("流动硅基 FlowSilicon %s", dbVersion)
-		logger.Info("已从数据库更新应用标题为: %s", cfg.App.Title)
-	}
-
-	// 更新全局配置
-	config.UpdateConfig(cfg)
-
-	// 更新服务器端口
-	serverPort = cfg.Server.Port
-
-	// 将更新后的配置保存回数据库
-	err = config.SaveConfigToDB()
-	if err != nil {
-		logger.Error("保存配置到数据库失败: %v", err)
-	}
-
-	// 输出模型策略配置
-	logModelStrategies()
-
-	logger.Info("配置重新加载成功")
-}
-
-// restartProgram Linux版本的重启程序功能
-// 使用exec.Command启动新进程，然后退出当前进程
+// restartProgram 重新启动程序，保留原始命令行参数
 func restartProgram() {
-	logger.Info("正在重启程序...")
-
-	// 获取当前可执行文件路径
 	execPath, err := os.Executable()
 	if err != nil {
 		logger.Error("获取当前程序路径失败: %v", err)
 		return
 	}
 
-	// 获取当前工作目录
-	workDir, err := os.Getwd()
-	if err != nil {
-		logger.Error("获取当前工作目录失败: %v", err)
-		workDir = executableDir // 如果获取失败，使用程序所在目录
-	}
-
 	// 获取当前命令行参数，排除第一个(程序路径)
-	args := os.Args
-	if len(args) > 1 {
-		args = args[1:]
-	} else {
-		args = []string{} // 确保args不为nil
+	args := []string{}
+	if len(os.Args) > 1 {
+		args = os.Args[1:]
 	}
 
-	logger.Info("准备重启程序: 路径=%s, 工作目录=%s, 参数=%v", execPath, workDir, args)
+	// 记录重启前的命令行参数
+	logger.Info("重启程序，当前命令行参数: %v", args)
 
-	// 创建新进程
+	// 创建新的进程
 	cmd := exec.Command(execPath, args...)
-	cmd.Dir = workDir
-	cmd.Env = os.Environ() // 传递所有当前环境变量
 
-	// 分离新进程与当前进程
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// 设置工作目录
+	cmd.Dir = executableDir
+
+	// 传递所有当前环境变量
+	cmd.Env = os.Environ()
 
 	// 启动新进程
 	err = cmd.Start()
 	if err != nil {
-		logger.Error("启动新进程失败: %v", err)
+		logger.Error("重启程序失败: %v", err)
 		return
 	}
 
-	// 从父进程中分离子进程
-	err = cmd.Process.Release()
-	if err != nil {
-		logger.Error("分离进程失败: %v", err)
-	}
+	logger.Info("新进程已启动，进程ID: %d，命令行参数: %v，工作目录: %s",
+		cmd.Process.Pid, args, executableDir)
 
-	logger.Info("新进程已启动(PID: %d)，当前进程将退出", cmd.Process.Pid)
-
-	// 保存必要的数据
-	logger.Info("正在保存重要数据...")
-	config.SaveApiKeys()
-	config.CloseConfigDB()
-
-	// 需要延迟一小段时间确保数据保存和日志写入完成
-	time.Sleep(500 * time.Millisecond)
-
-	// 退出当前进程
-	os.Exit(0)
+	// 设置退出标志并请求程序退出
+	logger.Info("当前程序将在重启成功后退出")
+	realQuit = true
+	systray.Quit()
 }

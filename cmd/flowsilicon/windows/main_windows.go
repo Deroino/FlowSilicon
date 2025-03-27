@@ -10,6 +10,7 @@ import (
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
+	"flowsilicon/internal/model"
 	"flowsilicon/web"
 	"fmt"
 	"os"
@@ -29,7 +30,7 @@ var (
 	// 全局变量，用于存储服务器端口
 	serverPort int
 	// 版本号
-	Version = "1.3.7"
+	Version = "1.3.8"
 	// 控制程序退出的通道
 	quitChan chan struct{} = make(chan struct{})
 	// 控制是否真正退出程序
@@ -83,6 +84,15 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("配置数据库初始化成功: %s", dbPath)
+
+	// 初始化模型数据库
+	err = model.InitModelDB(dbPath)
+	if err != nil {
+		logger.Error("初始化模型数据库失败: %v", err)
+		// 不退出程序，因为这不是致命错误
+	} else {
+		logger.Info("模型数据库初始化成功: %s", dbPath)
+	}
 
 	// 将当前版本号保存到数据库中
 	// 确保版本号格式一致 (添加v前缀如果不存在)
@@ -427,12 +437,13 @@ func onExit() {
 	if realQuit {
 		// 保存API密钥
 		config.SaveApiKeys()
+		// 关闭数据库连接
+		config.CloseConfigDB()
+		// 关闭模型数据库
+		model.CloseModelDB()
 		logger.Info("程序已退出")
 		// 关闭退出通道，通知主程序退出
 		close(quitChan)
-
-		// 不立即调用os.Exit，让主程序进行正确的清理工作
-		// os.Exit(0) 被移除，使用通道通知主程序
 	} else {
 		// 如果不是真正退出，只是重启systray（比如在隐藏/显示图标时）
 		logger.Info("系统托盘重启中...")
@@ -480,6 +491,10 @@ func logModelStrategies() {
 			strategyName = "高余额"
 		case 6:
 			strategyName = "普通"
+		case 7:
+			strategyName = "低余额"
+		case 8:
+			strategyName = "免费"
 		default:
 			strategyName = "普通"
 		}

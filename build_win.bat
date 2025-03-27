@@ -6,10 +6,10 @@ echo ===== 流动硅基 Windows 打包工具 v1.0 =====
 echo.
 
 REM 设置版本号和路径
-set VERSION=1.3.7
+set VERSION=1.3.8
 set OUTPUT_DIR=build
 set EXE_NAME=flowsilicon.exe
-set ICON_PATH=web\static\img\favicon_32.ico
+set ICON_PATH=web\static\img\favicon_128.ico
 set TEMP_DIR=temp_build
 
 REM 检查Go环境
@@ -176,7 +176,7 @@ if %ERRORLEVEL% neq 0 (
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "FileDescription" "FlowSilicon"
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "ProductName" "FlowSilicon"
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "CompanyName" "Hanhai"
-    %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "LegalCopyright" "版权所有 © 2025"
+    %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-version-string "LegalCopyright" "版权所有 ©Haihai 2025"
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-file-version "%VERSION%"
     %TEMP_DIR%\rcedit.exe %OUTPUT_FILE% --set-product-version "%VERSION%"
     

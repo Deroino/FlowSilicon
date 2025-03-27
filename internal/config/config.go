@@ -62,13 +62,17 @@ type Config struct {
 		RPMWeight         float64 `mapstructure:"rpm_weight"`          // RPM评分权重
 		TPMWeight         float64 `mapstructure:"tpm_weight"`          // TPM评分权重
 		// 自动更新配置
-		AutoUpdateInterval   int `mapstructure:"auto_update_interval"`   // API密钥信息自动更新间隔（秒）
-		StatsRefreshInterval int `mapstructure:"stats_refresh_interval"` // 系统概要自动刷新间隔（秒）
-		RateRefreshInterval  int `mapstructure:"rate_refresh_interval"`  // 速率监控自动刷新间隔（秒）
+		AutoUpdateInterval        int  `mapstructure:"auto_update_interval"`          // API密钥信息自动更新间隔（秒）
+		StatsRefreshInterval      int  `mapstructure:"stats_refresh_interval"`        // 系统概要自动刷新间隔（秒）
+		RateRefreshInterval       int  `mapstructure:"rate_refresh_interval"`         // 速率监控自动刷新间隔（秒）
+		AutoDeleteZeroBalanceKeys bool `mapstructure:"auto_delete_zero_balance_keys"` // 是否自动删除余额为0的密钥
+		RefreshUsedKeysInterval   int  `mapstructure:"refresh_used_keys_interval"`    // 刷新已使用密钥余额的间隔（分钟）
 		// 模型特定的密钥选择策略
 		ModelKeyStrategies map[string]int `mapstructure:"model_key_strategies"` // 模型特定的密钥选择策略
 		// 系统托盘图标设置
 		HideIcon bool `mapstructure:"hide_icon"` // 是否隐藏系统托盘图标
+		// 禁用的模型列表
+		DisabledModels []string `mapstructure:"disabled_models"` // 禁用的模型ID列表
 	} `mapstructure:"app"`
 	Log struct {
 		MaxSizeMB int    `mapstructure:"max_size_mb"` // 日志文件最大大小（MB）
@@ -170,17 +174,22 @@ func AddApiKey(key string, balance float64) {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
 
-	// 检查密钥是否已存在
+	// 检查密钥是否已存在（包括被逻辑删除的密钥）
 	for i, k := range apiKeys {
 		if k.Key == key {
 			// 更新现有密钥的余额
 			apiKeys[i].Balance = balance
+			// 如果密钥被标记为删除，恢复它
+			if apiKeys[i].Delete {
+				apiKeys[i].Delete = false
+				log.Printf("恢复之前逻辑删除的API密钥: %s", MaskKey(key))
+			}
 			// 检查余额并设置禁用状态
 			if balance < config.App.MinBalanceThreshold {
 				apiKeys[i].Disabled = true
 				apiKeys[i].DisabledAt = time.Now().Unix()
 				log.Printf("API密钥 %s 余额 %.2f 低于阈值 %.2f，已自动禁用",
-					key, balance, config.App.MinBalanceThreshold)
+					MaskKey(key), balance, config.App.MinBalanceThreshold)
 			} else {
 				apiKeys[i].Disabled = false
 				apiKeys[i].DisabledAt = 0
@@ -191,6 +200,31 @@ func AddApiKey(key string, balance float64) {
 				logger.Error("保存API密钥到数据库失败: %v", err)
 			}
 			return
+		}
+	}
+
+	// 检查数据库中是否存在被逻辑删除的密钥
+	if db != nil {
+		var exists bool
+		var isDeleted bool
+		err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM `+apikeysTableName+` WHERE key = ?), 
+			(SELECT is_delete FROM `+apikeysTableName+` WHERE key = ?)`, key, key).Scan(&exists, &isDeleted)
+
+		if err == nil && exists && isDeleted {
+			// 密钥存在但被逻辑删除，恢复它
+			_, err := db.Exec(`UPDATE `+apikeysTableName+` SET is_delete = ?, balance = ? WHERE key = ?`,
+				false, balance, key)
+			if err == nil {
+				log.Printf("从数据库恢复之前逻辑删除的API密钥: %s", MaskKey(key))
+
+				// 重新加载密钥
+				if loadErr := LoadApiKeysFromDB(); loadErr != nil {
+					logger.Error("恢复密钥后重新加载密钥失败: %v", loadErr)
+				}
+				return
+			} else {
+				logger.Error("从数据库恢复逻辑删除的密钥失败: %v", err)
+			}
 		}
 	}
 
@@ -205,7 +239,7 @@ func AddApiKey(key string, balance float64) {
 		newKey.Disabled = true
 		newKey.DisabledAt = time.Now().Unix()
 		log.Printf("新增API密钥 %s 余额 %.2f 低于阈值 %.2f，已自动禁用",
-			key, balance, config.App.MinBalanceThreshold)
+			MaskKey(key), balance, config.App.MinBalanceThreshold)
 	}
 
 	apiKeys = append(apiKeys, newKey)
@@ -1094,40 +1128,36 @@ func MarkApiKeyForDeletion(key string) bool {
 	return false
 }
 
-// RemoveMarkedApiKeys 删除所有标记为删除的API密钥
+// RemoveMarkedApiKeys 处理所有标记为删除的API密钥
+// 仅将其is_delete字段设置为true，实现逻辑删除
 func RemoveMarkedApiKeys() int {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
 
-	originalLength := len(apiKeys)
-	newKeys := make([]ApiKey, 0, originalLength)
+	var deletedCount int
 
-	// 保存需要删除的密钥列表
-	keysToDelete := make([]string, 0)
+	// 将标记为删除的密钥设置为logically deleted
+	for i, k := range apiKeys {
+		if k.Delete {
+			log.Printf("逻辑删除已标记的API密钥: %s", MaskKey(k.Key))
 
-	for _, k := range apiKeys {
-		if !k.Delete {
-			newKeys = append(newKeys, k)
-		} else {
-			log.Printf("删除已标记的API密钥: %s", MaskKey(k.Key))
-			// 记录需要从数据库中删除的密钥
-			keysToDelete = append(keysToDelete, k.Key)
-		}
-	}
+			// 确保Delete标记为true
+			apiKeys[i].Delete = true
 
-	deleted := originalLength - len(newKeys)
-	if deleted > 0 {
-		apiKeys = newKeys
+			// 保存到数据库
+			keyCopy := apiKeys[i]
+			keyCopy.RecentRequests = nil // 清空不需要保存的字段
 
-		// 从数据库中删除标记的密钥
-		for _, keyToDelete := range keysToDelete {
-			if err := DeleteApiKeyFromDB(keyToDelete); err != nil {
-				logger.Error("从数据库删除API密钥失败: %v", err)
+			// 使用AddApiKeyToDB更新数据库记录
+			if err := AddApiKeyToDB(keyCopy); err != nil {
+				logger.Error("更新数据库中的API密钥删除状态失败: %v", err)
+			} else {
+				deletedCount++
 			}
 		}
 	}
 
-	return deleted
+	return deletedCount
 }
 
 // EnsureDefaultConfig 检查配置表中是否有数据，如果没有则插入默认配置
@@ -1156,7 +1186,7 @@ func EnsureDefaultConfig(dbPath string) error {
 		logger.Info("数据库中没有找到配置或发生错误: %v，将插入默认配置", err)
 
 		// 使用默认版本号
-		version := "v1.3.7" // 默认版本号
+		version := "v1.3.8" // 默认版本号
 
 		// 确保版本已保存
 		_, err = db.Exec("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", "version", version)
@@ -1204,11 +1234,14 @@ func EnsureDefaultConfig(dbPath string) error {
 				"SuccessRateWeight":0.3,
 				"RPMWeight":0.15,
 				"TPMWeight":0.15,
-				"AutoUpdateInterval":500,
-				"StatsRefreshInterval":100,
-				"RateRefreshInterval":150,
+				"AutoUpdateInterval":3600,
+				"StatsRefreshInterval":3600,
+				"RateRefreshInterval":3600,
+				"AutoDeleteZeroBalanceKeys":false,
+				"RefreshUsedKeysInterval":60,
 				"ModelKeyStrategies":{},
-				"HideIcon":false
+				"HideIcon":false,
+				"DisabledModels":[]
 			},
 			"Log":{"MaxSizeMB":1, "Level":"warn"}
 		}`, version)

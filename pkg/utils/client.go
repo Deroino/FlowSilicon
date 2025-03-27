@@ -36,7 +36,6 @@ func CreateClientWithTimeout(timeout time.Duration) *http.Client {
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
-			DualStack: true,
 		}).DialContext,
 		// 增加TLS握手超时
 		TLSHandshakeTimeout: 30 * time.Second,
@@ -58,7 +57,11 @@ func CreateClientWithTimeout(timeout time.Duration) *http.Client {
 				logger.Error("创建SOCKS5代理拨号器失败: %v", err)
 			} else {
 				// 设置自定义拨号函数
-				transport.DialContext = dialer.(proxy.ContextDialer).DialContext
+				if contextDialer, ok := dialer.(proxy.ContextDialer); ok {
+					transport.DialContext = contextDialer.DialContext
+				} else {
+					logger.Error("无法将代理转换为ContextDialer")
+				}
 			}
 		} else {
 			// 使用HTTP/HTTPS代理

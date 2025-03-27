@@ -12,9 +12,10 @@ import (
 	"errors"
 	"flowsilicon/internal/logger"
 	"fmt"
-	_ "modernc.org/sqlite"
 	"os"
 	"path/filepath"
+
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -118,7 +119,7 @@ func LoadConfigFromDB() (*Config, error) {
 		// 	logger.Info("数据库中没有配置数据，尝试插入默认配置")
 
 		// 	// 使用默认版本号
-		// 	version := "v1.3.7"
+		// 	version := "v1.3.8"
 
 		// 	// 确保版本已保存
 		// 	_, vErr := db.Exec("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", "version", version)
@@ -287,4 +288,9 @@ func SaveVersion(version string) error {
 
 	logger.Info("版本号 '%s' 已成功保存到数据库", version)
 	return nil
+}
+
+// DB 返回数据库实例
+func DB() *sql.DB {
+	return db
 }

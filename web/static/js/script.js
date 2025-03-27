@@ -329,6 +329,9 @@ function renderKeysList() {
         // 检查是否选中
         const isSelected = key.selected || false;
         const selectedClass = isSelected ? 'selected' : '';
+
+        // console.log("key.score",key.score);
+        
         
         // 添加所有需要的数据属性，用于排序功能
         html += `
@@ -344,7 +347,7 @@ function renderKeysList() {
                     <div class="key-content">
                         <input type="checkbox" class="form-check-input key-checkbox key-select" data-key="${key.key}" ${key.disabled ? 'disabled' : ''} ${isSelected ? 'checked' : ''}>
                         <span class="key-label ms-2">${maskedKey}</span>
-                        <span class="key-score ms-2" data-score="${key.score || 0}">${key.score ? key.score.toFixed(2) : '0.00'}</span>
+                        <span class="key-score ms-2" data-score="${parseFloat(key.score || 0).toFixed(2)}">${parseFloat(key.score || 0).toFixed(2)}</span>
                         <span class="ms-2">余额: <span class="key-balance" data-balance="${key.balance || 0}">${key.balance.toFixed(2)}</span></span>
                         <span class="key-stat ms-2" data-usage="${key.total_calls || 0}">调用: ${key.total_calls}</span>
                         <span class="key-stat ms-2" data-success-rate="${key.success_rate || 0}">成功率: ${successRatePercent.toFixed(1)}%</span>
@@ -878,7 +881,7 @@ function loadCurrentRequestStats() {
                 }
                 
                 // 更新得分
-                const scoreElement = keyElement.querySelector('.key-score');
+                const scoreElement = keyElement.querySelector('.vlaue-score');
                 if (scoreElement && keyStat.score !== undefined) {
                     scoreElement.textContent = `${keyStat.score.toFixed(2)}`;
                 }
@@ -2029,7 +2032,8 @@ function testApiEndpoint(endpoint) {
                     });
             } else if (endpoint === 'chat') {
                 // 测试chat API
-                const baseUrl = window.location.origin;
+
+
                 fetch(`/test-chat`, {
                     method: 'POST',
                     headers: {
@@ -2127,6 +2131,64 @@ function deleteZeroBalanceKeys() {
         .catch(error => {
             console.error('Error deleting zero balance keys:', error);
             showToast('删除余额小于或等于0的API密钥失败', 'error');
+        });
+}
+
+// 批量删除余额低于指定值的API密钥
+function deleteLowBalanceKeys(threshold) {
+    // 显示加载状态
+    const deleteBtn = document.getElementById('batch-delete-btn');
+    const deleteResult = document.getElementById('delete-result');
+    
+    if (deleteBtn) {
+        deleteBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 删除中...';
+        deleteBtn.disabled = true;
+    }
+    
+    if (deleteResult) {
+        deleteResult.innerHTML = '<div class="alert alert-info">正在删除余额低于 ' + threshold + ' 的API密钥...</div>';
+    }
+    
+    // 发送请求删除低余额密钥
+    fetch('/keys/low-balance/' + threshold, {
+        method: 'DELETE',
+    })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('删除低余额密钥失败');
+            }
+            return response.json();
+        })
+        .then(data => {
+
+            // 显示成功消息
+            if (deleteResult) {
+                if (data.deleted_keys != null) {
+                    deleteResult.innerHTML = '<div class="alert alert-success">' + data.message + '</div>';
+                } else {
+                    deleteResult.innerHTML = '<div class="alert alert-info">' + data.message + '</div>';
+                }
+            }
+            
+            // 重新加载密钥列表和系统概要
+            loadKeys();
+            loadStats();
+        })
+        .catch(error => {
+            console.error('Error deleting low balance keys:', error, threshold);
+            
+            if (deleteResult) {
+                deleteResult.innerHTML = '<div class="alert alert-danger">删除失败: ' + error.message + '</div>';
+            }
+            
+            showToast('删除低余额API密钥失败', 'error');
+        })
+        .finally(() => {
+            // 恢复按钮状态
+            if (deleteBtn) {
+                deleteBtn.innerHTML = '<i class="bi bi-trash"></i> 批量删除';
+                deleteBtn.disabled = false;
+            }
         });
 }
 
@@ -2345,11 +2407,31 @@ document.addEventListener('DOMContentLoaded', function() {
         const keys = parseKeys(keysInput);
         
         if (keys.length === 0) {
-            showToast('请输入至少一个有效的 API 密钥', 'error');
+            showToast('请输入至少一个 API 密钥', 'error');
             return;
         }
         
         batchAddKeys(keys, balance);
+    });
+    
+    // 添加批量删除表单提交事件
+    document.getElementById('batch-delete-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const threshold = document.getElementById('delete-balance-threshold').value;
+        const confirmed = document.getElementById('confirm-batch-delete').checked;
+        
+        if (!confirmed) {
+            showToast('请确认删除操作', 'error');
+            return;
+        }
+        
+        if (threshold < 0) {
+            showToast('余额阈值必须大于等于0', 'error');
+            return;
+        }
+        
+        deleteLowBalanceKeys(threshold);
     });
     
     // 添加刷新按钮事件
@@ -2375,6 +2457,23 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     } else {
         console.error('导出密钥按钮未找到');
+    }
+
+    // 添加导出格式选择事件
+    const exportNewlineBtn = document.getElementById('export-newline-btn');
+    if (exportNewlineBtn) {
+        exportNewlineBtn.addEventListener('click', function() {
+            exportKeysWithFormat('newline');
+            bootstrap.Modal.getInstance(document.getElementById('export-format-modal')).hide();
+        });
+    }
+
+    const exportCommaBtn = document.getElementById('export-comma-btn');
+    if (exportCommaBtn) {
+        exportCommaBtn.addEventListener('click', function() {
+            exportKeysWithFormat('comma');
+            bootstrap.Modal.getInstance(document.getElementById('export-format-modal')).hide();
+        });
     }
     
     // 添加单独使用选中密钥按钮事件
@@ -2671,7 +2770,19 @@ function bindKeyEvents() {
 
 // 导出所有API密钥
 function exportKeys() {
-    
+    // 显示导出选择模态框
+    const exportModal = document.getElementById('export-format-modal');
+    if (exportModal) {
+        const bsModal = new bootstrap.Modal(exportModal);
+        bsModal.show();
+    } else {
+        console.error('导出格式选择模态框未找到，使用默认格式导出');
+        exportKeysWithFormat('newline'); // 默认使用换行符分隔
+    }
+}
+
+// 根据指定格式导出密钥
+function exportKeysWithFormat(format) {
     // 获取所有密钥
     fetch('/keys')
         .then(response => {
@@ -2690,7 +2801,16 @@ function exportKeys() {
 
             // 提取所有密钥
             const keys = data.keys.map(k => k.key);
-            const keyText = keys.join('\n');
+            
+            // 根据格式选择分隔符
+            let keyText, fileName;
+            if (format === 'comma') {
+                keyText = keys.join(',');
+                fileName = 'api_keys_comma.txt';
+            } else {
+                keyText = keys.join('\n');
+                fileName = 'api_keys.txt';
+            }
 
             // 创建blob对象
             const blob = new Blob([keyText], { type: 'text/plain' });
@@ -2699,7 +2819,7 @@ function exportKeys() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'api_keys.txt';
+            a.download = fileName;
             
             // 触发下载
             document.body.appendChild(a);

@@ -30,6 +30,9 @@
                 <h1>{{ .title }}</h1>
             </div>
             <div class="d-flex justify-content-end mb-3">
+                <a href="/model" class="btn btn-outline-secondary me-2">
+                    <i class="bi bi-box-seam"></i> 模型管理
+                </a>
                 <a href="/setting" class="btn btn-outline-secondary">
                     <i class="bi bi-gear"></i> 系统设置
                 </a>
@@ -79,7 +82,7 @@
 
                 <div class="card">
                     <div class="card-header">
-                        <h5>添加 API 密钥</h5>
+                        <h5>API 密钥管理</h5>
                     </div>
                     <div class="card-body">
                         <ul class="nav nav-tabs" id="myTab" role="tablist">
@@ -88,6 +91,9 @@
                             </li>
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="batch-add-tab" data-bs-toggle="tab" data-bs-target="#batch-add" type="button" role="tab" aria-controls="batch-add" aria-selected="false">批量添加</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="batch-delete-tab" data-bs-toggle="tab" data-bs-target="#batch-delete" type="button" role="tab" aria-controls="batch-delete" aria-selected="false">批量删除</button>
                             </li>
                         </ul>
                         <div class="tab-content" id="myTabContent">
@@ -130,6 +136,27 @@
                                     <button type="submit" class="btn btn-primary">批量添加</button>
                                 </form>
                             </div>
+                            <div class="tab-pane fade" id="batch-delete" role="tabpanel" aria-labelledby="batch-delete-tab">
+                                <form id="batch-delete-form" class="mt-3">
+                                    <div class="mb-3">
+                                        <label for="delete-balance-threshold" class="form-label">删除余额低于</label>
+                                        <input type="number" class="form-control" id="delete-balance-threshold" value="1" step="0.01" min="0" required>
+                                        <small class="form-text text-muted">将删除余额低于此值的所有API密钥</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="confirm-batch-delete" required>
+                                            <label class="form-check-label" for="confirm-batch-delete">
+                                                我确认要删除符合条件的API密钥
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-danger" id="batch-delete-btn">
+                                        <i class="bi bi-trash"></i> 批量删除
+                                    </button>
+                                    <div id="delete-result" class="mt-3"></div>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -147,7 +174,7 @@
                                 刷新余额
                             </button>
                             <button id="export-keys" class="btn btn-sm btn-outline-success ms-2">
-                                <i class="bi bi-download"></i>
+                                <i class="bi bi-upload"></i>
                                 导出密钥
                             </button>
                             <button id="view-logs" class="btn btn-sm btn-outline-info ms-2">
@@ -177,7 +204,7 @@
                         <!-- 添加API地址显示和复制按钮 -->
                     <div class="api-endpoints">
                             <h6 style="display: flex; justify-content: space-between; align-items: center;">
-                                API 接口地址：
+                                API 接口地址
                                 <button id="test-all-endpoints" class="btn btn-sm btn-primary">一键检测</button>
                             </h6>
 
@@ -348,7 +375,7 @@
             <p class="text-muted mb-0">@Hanhai 2025</p>
             <p class="text-muted mb-0">
                 <a href="https://github.com/HanHai-Space/FlowSilicon" target="_blank" rel="noopener noreferrer">
-                    <i class="bi bi-github"></i> Github 仓库
+                    <i class="bi bi-github"></i> Github 
                 </a>
             </p>
         </div>
@@ -361,6 +388,32 @@
     <div class="log-viewer" id="log-viewer">
         <span class="log-close" id="log-close">&times;</span>
         <div class="log-content" id="log-content">加载日志中...</div>
+    </div>
+
+    <!-- 导出格式选择模态框 -->
+    <div class="modal fade" id="export-format-modal" tabindex="-1" aria-labelledby="exportFormatModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exportFormatModalLabel">选择导出格式</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                    <p>请选择API密钥的导出格式：</p>
+                    <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-outline-primary" id="export-newline-btn">
+                            <i class="bi bi-file-earmark-text"></i> 原始格式（每行一个密钥）
+                        </button>
+                        <button type="button" class="btn btn-outline-success" id="export-comma-btn">
+                            <i class="bi bi-file-earmark-spreadsheet"></i> 逗号分隔（sk1,sk2,sk3）
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </div>
+        </div>
     </div>
 
 </body>

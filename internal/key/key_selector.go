@@ -7,6 +7,7 @@
 package key
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -518,4 +519,190 @@ func getRoundRobinKey() (string, error) {
 	// 更新最后使用时间
 	config.UpdateApiKeyLastUsed(selectedKey, time.Now().Unix())
 	return selectedKey, nil
+}
+
+// 获取余额最低的密钥（支持轮询）
+func getLowestBalanceKeyWithRoundRobin() (string, error) {
+	activeKeys := config.GetActiveApiKeys()
+	if len(activeKeys) == 0 {
+		return "", common.ErrNoActiveKeys
+	}
+
+	// 先找出最低余额值
+	var lowestBalance float64 = 999999.0
+	for _, key := range activeKeys {
+		if key.Balance < lowestBalance {
+			lowestBalance = key.Balance
+		}
+	}
+
+	// 收集所有具有最低余额的密钥
+	var lowestBalanceKeys []config.ApiKey
+	for _, key := range activeKeys {
+		if key.Balance == lowestBalance {
+			lowestBalanceKeys = append(lowestBalanceKeys, key)
+		}
+	}
+
+	// 增加详细日志
+	logger.Info("找到%d个具有相同最低余额(%.2f)的密钥", len(lowestBalanceKeys), lowestBalance)
+
+	// 记录所有找到的密钥以便调试
+	if len(lowestBalanceKeys) > 1 {
+		keyList := ""
+		for i, k := range lowestBalanceKeys {
+			if i > 0 {
+				keyList += ", "
+			}
+			keyList += utils.MaskKey(k.Key)
+		}
+		logger.Info("可用于轮询的低余额密钥列表: %s", keyList)
+	}
+
+	// 记录当前轮询索引
+	rrMutex.Lock()
+	currentIndex := strategyRoundRobinIndex["low_balance"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询选择: 策略=low_balance, 当前索引=%d, 总密钥数=%d",
+		currentIndex, len(lowestBalanceKeys))
+
+	// 使用轮询选择器获取密钥
+	selectedKey := selectKeyByRoundRobin(lowestBalanceKeys, "low_balance")
+	if selectedKey == "" {
+		return "", common.ErrNoActiveKeys
+	}
+
+	// 记录选中的密钥和更新后的索引
+	rrMutex.Lock()
+	newIndex := strategyRoundRobinIndex["low_balance"]
+	rrMutex.Unlock()
+
+	logger.Info("轮询结果: 策略=low_balance, 选择密钥=%s, 新索引=%d",
+		utils.MaskKey(selectedKey), newIndex)
+
+	// 更新最后使用时间
+	config.UpdateApiKeyLastUsed(selectedKey, time.Now().Unix())
+	return selectedKey, nil
+}
+
+// getLowestBalanceKey 获取余额最低的密钥
+func getLowestBalanceKey() (string, error) {
+	return getLowestBalanceKeyWithRoundRobin()
+}
+
+// getFreeModelKey 实现免费模型的策略
+// 先轮询is_delete为1的密钥，再轮询disabled为1的密钥，再轮询is_used为0的密钥，最后使用低余额策略
+func getFreeModelKey() (string, error) {
+	// 获取所有API密钥（包括禁用的，但不包括已标记为删除的）
+	allKeys := config.GetApiKeys()
+	if len(allKeys) == 0 {
+		return "", common.ErrNoActiveKeys
+	}
+
+	// 1. 首先尝试使用已标记为删除的密钥（不在GetApiKeys结果中，需要单独获取）
+	deletedKeys, err := getDeletedApiKeys()
+	if err != nil {
+		logger.Error("获取已删除密钥失败: %v", err)
+	} else if len(deletedKeys) > 0 {
+		logger.Info("找到%d个已删除的密钥，尝试使用", len(deletedKeys))
+
+		// 使用轮询选择器
+		selectedKey := selectKeyByRoundRobin(deletedKeys, "free_deleted")
+		if selectedKey != "" {
+			logger.Info("使用已删除的密钥: %s", utils.MaskKey(selectedKey))
+			return selectedKey, nil
+		}
+	}
+
+	// 2. 尝试使用已禁用的密钥
+	var disabledKeys []config.ApiKey
+	for _, key := range allKeys {
+		if key.Disabled {
+			disabledKeys = append(disabledKeys, key)
+		}
+	}
+
+	if len(disabledKeys) > 0 {
+		logger.Info("找到%d个已禁用的密钥，尝试使用", len(disabledKeys))
+
+		// 使用轮询选择器
+		selectedKey := selectKeyByRoundRobin(disabledKeys, "free_disabled")
+		if selectedKey != "" {
+			logger.Info("使用已禁用的密钥: %s", utils.MaskKey(selectedKey))
+			return selectedKey, nil
+		}
+	}
+
+	// 3. 尝试使用未使用过的密钥
+	var unusedKeys []config.ApiKey
+	for _, key := range allKeys {
+		if !key.IsUsed && !key.Disabled {
+			unusedKeys = append(unusedKeys, key)
+		}
+	}
+
+	if len(unusedKeys) > 0 {
+		logger.Info("找到%d个未使用过的密钥，尝试使用", len(unusedKeys))
+
+		// 使用轮询选择器
+		selectedKey := selectKeyByRoundRobin(unusedKeys, "free_unused")
+		if selectedKey != "" {
+			logger.Info("使用未使用过的密钥: %s", utils.MaskKey(selectedKey))
+			return selectedKey, nil
+		}
+	}
+
+	// 4. 最后尝试使用低余额策略
+	logger.Info("尝试使用低余额策略选择密钥")
+	return getLowestBalanceKey()
+}
+
+// getDeletedApiKeys 获取所有标记为已删除的API密钥
+func getDeletedApiKeys() ([]config.ApiKey, error) {
+	// 从数据库中查询已标记为删除的密钥
+	if config.DB() == nil {
+		return nil, fmt.Errorf("数据库连接未初始化")
+	}
+
+	rows, err := config.DB().Query(`SELECT 
+		key, balance, last_used, total_calls, success_calls, success_rate, 
+		consecutive_failures, disabled, disabled_at, last_tested, rpm, tpm, score, is_delete, is_used 
+		FROM apikeys WHERE is_delete = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var deletedKeys []config.ApiKey
+	for rows.Next() {
+		var key config.ApiKey
+		if err := rows.Scan(
+			&key.Key,
+			&key.Balance,
+			&key.LastUsed,
+			&key.TotalCalls,
+			&key.SuccessCalls,
+			&key.SuccessRate,
+			&key.ConsecutiveFailures,
+			&key.Disabled,
+			&key.DisabledAt,
+			&key.LastTested,
+			&key.RequestsPerMinute,
+			&key.TokensPerMinute,
+			&key.Score,
+			&key.Delete,
+			&key.IsUsed,
+		); err != nil {
+			return nil, err
+		}
+
+		deletedKeys = append(deletedKeys, key)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return deletedKeys, nil
 }

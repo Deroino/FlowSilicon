@@ -6,7 +6,10 @@
 
 package utils
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"os/exec"
+)
 
 // estimateTokenCount 估算请求和响应的令牌数
 func EstimateTokenCount(requestBody, responseBody []byte) int {
@@ -66,4 +69,11 @@ func MaskKey(key string) string {
 		return "******"
 	}
 	return key[:6] + "******"
+}
+
+// SetupWindowsRestartCommand 设置Windows重启命令的特定属性
+// 对于非Windows平台，这个函数不执行任何操作
+func SetupWindowsRestartCommand(cmd *exec.Cmd, isGuiMode bool) {
+	// 使用专用的平台特定函数
+	setupWindowsSysProcAttr(cmd, isGuiMode)
 }

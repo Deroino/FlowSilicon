@@ -87,8 +87,14 @@ func StartKeyManager() {
 	recoverySpec := fmt.Sprintf("@every %dm", cfg.App.RecoveryInterval)
 	cronScheduler.AddFunc(recoverySpec, tryRecoverDisabledKeys)
 
-	// 添加定时任务，每小时刷新一次已使用过的API密钥余额
-	cronScheduler.AddFunc("@hourly", RefreshUsedKeysBalance)
+	// 添加定时任务，定时刷新已使用过的API密钥余额
+	refreshUsedKeysInterval := cfg.App.RefreshUsedKeysInterval
+	// 如果配置值小于等于0，使用默认值
+	if refreshUsedKeysInterval <= 0 {
+		refreshUsedKeysInterval = 60 // 默认每60分钟刷新一次
+	}
+	refreshUsedKeysSpec := fmt.Sprintf("@every %dm", refreshUsedKeysInterval)
+	cronScheduler.AddFunc(refreshUsedKeysSpec, RefreshUsedKeysBalance)
 
 	// 启动定时任务
 	cronScheduler.Start()
@@ -125,10 +131,16 @@ func checkAllKeysBalance() {
 
 			logger.Info("API密钥 %s 余额: %.2f", MaskKey(key.Key), balance)
 
-			// 如果余额为0或负数，将其标记为删除
+			// 如果余额为0或负数，根据配置决定是否标记为删除
 			if balance <= 0 {
-				logger.Info("API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
-				config.MarkApiKeyForDeletion(key.Key)
+				if config.GetConfig().App.AutoDeleteZeroBalanceKeys {
+					logger.Info("API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
+					config.MarkApiKeyForDeletion(key.Key)
+				} else {
+					logger.Info("API密钥 %s 余额为 %.2f，但自动删除已禁用", MaskKey(key.Key), balance)
+					// 更新余额
+					config.UpdateApiKeyBalance(key.Key, balance)
+				}
 				return
 			}
 
@@ -532,10 +544,16 @@ func ForceRefreshAllKeysBalance() error {
 
 			logger.Info("强制刷新: API密钥 %s 余额: %.2f", MaskKey(key.Key), balance)
 
-			// 如果余额为0或负数，将其标记为删除
+			// 如果余额为0或负数，根据配置决定是否标记为删除
 			if balance <= 0 {
-				logger.Info("强制刷新: API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
-				config.MarkApiKeyForDeletion(key.Key)
+				if config.GetConfig().App.AutoDeleteZeroBalanceKeys {
+					logger.Info("强制刷新: API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
+					config.MarkApiKeyForDeletion(key.Key)
+				} else {
+					logger.Info("强制刷新: API密钥 %s 余额为 %.2f，但自动删除已禁用", MaskKey(key.Key), balance)
+					// 更新余额
+					config.UpdateApiKeyBalance(key.Key, balance)
+				}
 				return
 			}
 
@@ -651,10 +669,16 @@ func RefreshUsedKeysBalance() {
 
 			logger.Info("刷新已使用密钥: API密钥 %s 余额: %.2f", MaskKey(key.Key), balance)
 
-			// 如果余额为0或负数，将其标记为删除
+			// 如果余额为0或负数，根据配置决定是否标记为删除
 			if balance <= 0 {
-				logger.Info("刷新已使用密钥: API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
-				config.MarkApiKeyForDeletion(key.Key)
+				if config.GetConfig().App.AutoDeleteZeroBalanceKeys {
+					logger.Info("刷新已使用密钥: API密钥 %s 余额为 %.2f，标记为删除", MaskKey(key.Key), balance)
+					config.MarkApiKeyForDeletion(key.Key)
+				} else {
+					logger.Info("刷新已使用密钥: API密钥 %s 余额为 %.2f，但自动删除已禁用", MaskKey(key.Key), balance)
+					// 更新余额
+					config.UpdateApiKeyBalance(key.Key, balance)
+				}
 				return
 			}
 

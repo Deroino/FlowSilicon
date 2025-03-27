@@ -8,13 +8,3 @@ package key
 
 // KeySelectionStrategy 定义密钥选择策略类型
 type KeySelectionStrategy int
-
-// 密钥选择策略常量
-const (
-	StrategyHighSuccessRate KeySelectionStrategy = 1 // 高成功率策略
-	StrategyHighScore       KeySelectionStrategy = 2 // 高分数策略
-	StrategyLowRPM          KeySelectionStrategy = 3 // 低RPM策略
-	StrategyLowTPM          KeySelectionStrategy = 4 // 低TPM策略
-	StrategyHighBalance     KeySelectionStrategy = 5 // 高余额策略
-	StrategyRoundRobin      KeySelectionStrategy = 6 // 普通轮询策略
-)
