@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/23 22:30:16
-  @desc:
+  @desc: Linux平台主程序入口，包含配置初始化和服务启动功能
 **/
 
 package main
@@ -11,7 +10,7 @@ import (
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
 	"flowsilicon/internal/model"
-	"flowsilicon/web"
+	"flowsilicon/internal/web"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,7 +27,7 @@ var (
 	// 全局变量，用于存储服务器端口
 	serverPort int
 	// 版本号
-	Version = "1.3.8"
+	Version = "1.3.9"
 	// 程序所在目录
 	executableDir string
 )
@@ -157,7 +156,7 @@ func main() {
 		// 设置日志文件最大大小
 		logMaxSize := cfg.Log.MaxSizeMB
 		if logMaxSize <= 0 {
-			logMaxSize = 10 // 默认10MB
+			logMaxSize = 1 // 默认10MB
 		}
 		logger.SetMaxLogSize(logMaxSize)
 
@@ -186,7 +185,7 @@ func main() {
 
 		// 强制刷新所有API密钥的余额
 		if refreshErr := key.ForceRefreshAllKeysBalance(); refreshErr != nil {
-			logger.Error("强制刷新API密钥余额失败: %v", refreshErr)
+			logger.Error("刷新API密钥余额失败: %v", refreshErr)
 		} else {
 			logger.Info("已完成API密钥余额的强制刷新")
 		}
@@ -201,6 +200,8 @@ func main() {
 
 	// 创建Gin路由
 	router := gin.Default()
+	// 设置受信任的代理
+	router.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 
 	// 设置API代理
 	web.SetupApiProxy(router)

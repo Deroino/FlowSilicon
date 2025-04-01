@@ -1,6 +1,5 @@
 /**
   @author: AI
-  @since: 2024
   @desc: CORS中间件，处理跨域请求
 **/
 

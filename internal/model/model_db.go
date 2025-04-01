@@ -1,20 +1,22 @@
 /**
   @author: Hanhai
-  @since: 2025/3/27 00:12:20
-  @desc:
+  @desc: 模型数据库管理模块，提供模型信息存储、查询和更新功能
 **/
 
 package model
 
 import (
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/logger"
+	"flowsilicon/pkg/utils"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 var (
@@ -30,6 +32,18 @@ func InitModelDB(dbPath string) error {
 		return err
 	}
 
+	// 设置连接池参数
+	modelDB.SetMaxOpenConns(1)                   // 限制最大连接数为1，以减少并发问题
+	modelDB.SetMaxIdleConns(1)                   // 最大空闲连接数
+	modelDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大生命周期
+
+	// 启用WAL模式和关闭同步模式，提高性能，降低锁定风险
+	_, err = modelDB.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")
+	if err != nil {
+		logger.Warn("设置SQLite PRAGMA失败: %v", err)
+		// 继续执行，因为这不是致命错误
+	}
+
 	// 测试数据库连接
 	if err = modelDB.Ping(); err != nil {
 		return err
@@ -42,6 +56,7 @@ func InitModelDB(dbPath string) error {
 		is_giftable BOOLEAN DEFAULT 0 NOT NULL,
 		strategy_id INTEGER DEFAULT 0 NOT NULL,
 		type INTEGER DEFAULT 1 NOT NULL,
+		call_count INTEGER DEFAULT 0 NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		deleted_at TIMESTAMP
@@ -81,6 +96,14 @@ func InitModelDB(dbPath string) error {
 		return err
 	}
 
+	// 检查call_count字段是否存在
+	var callCountColumnExists int
+	err = modelDB.QueryRow("SELECT count(*) FROM pragma_table_info('models') WHERE name='call_count'").Scan(&callCountColumnExists)
+	if err != nil {
+		logger.Error("检查call_count字段存在失败: %v", err)
+		return err
+	}
+
 	// 如果列不存在，添加它
 	if strategyColumnExists == 0 {
 		_, err = modelDB.Exec("ALTER TABLE models ADD COLUMN strategy_id INTEGER DEFAULT 0 NOT NULL")
@@ -99,6 +122,16 @@ func InitModelDB(dbPath string) error {
 			return err
 		}
 		logger.Info("成功添加type字段到models表")
+	}
+
+	// 如果call_count列不存在，添加它
+	if callCountColumnExists == 0 {
+		_, err = modelDB.Exec("ALTER TABLE models ADD COLUMN call_count INTEGER DEFAULT 0 NOT NULL")
+		if err != nil {
+			logger.Error("添加call_count字段失败: %v", err)
+			return err
+		}
+		logger.Info("成功添加call_count字段到models表")
 	}
 
 	// 更新所有免费模型的策略为8（免费策略），默认策略为6（普通策略）
@@ -161,7 +194,7 @@ func GetAllModels() ([]Model, error) {
 	}
 
 	// 查询所有未删除的模型
-	query := `SELECT id, is_free, is_giftable, strategy_id, type FROM models WHERE deleted_at IS NULL`
+	query := `SELECT id, is_free, is_giftable, strategy_id, type, call_count FROM models WHERE deleted_at IS NULL`
 	rows, err := modelDB.Query(query)
 	if err != nil {
 		return nil, err
@@ -171,7 +204,7 @@ func GetAllModels() ([]Model, error) {
 	var models []Model
 	for rows.Next() {
 		var model Model
-		if err := rows.Scan(&model.ID, &model.IsFree, &model.IsGiftable, &model.StrategyID, &model.Type); err != nil {
+		if err := rows.Scan(&model.ID, &model.IsFree, &model.IsGiftable, &model.StrategyID, &model.Type, &model.CallCount); err != nil {
 			return nil, err
 		}
 		models = append(models, model)
@@ -198,8 +231,7 @@ func fetchRemoteModels(baseURL string) ([]string, int, error) {
 	}
 
 	apikeys := config.GetActiveApiKeys()
-	req.Header.Set("Authorization", "Bearer "+apikeys[0].Key)
-	req.Header.Set("Content-Type", "application/json")
+	utils.SetCommonHeaders(req, apikeys[0].Key)
 
 	// 发送请求
 	client := &http.Client{}
@@ -587,4 +619,107 @@ func UpdateModelGiftableStatusWithTx(tx *sql.Tx, modelIds []string, isGiftable b
 	}
 
 	return int(rowsAffected), nil
+}
+
+// ModelDBExecWithRetry 执行SQL语句并在遇到数据库锁定错误时进行重试
+// operation: 操作名称，用于日志
+// maxRetries: 最大重试次数
+// stmt: SQL语句
+// args: SQL参数
+func ModelDBExecWithRetry(operation string, maxRetries int, stmt string, args ...interface{}) (sql.Result, error) {
+	if modelDB == nil {
+		return nil, fmt.Errorf("数据库连接未初始化")
+	}
+
+	var result sql.Result
+	var err error
+
+	for retries := 0; retries < maxRetries; retries++ {
+		result, err = modelDB.Exec(stmt, args...)
+		if err == nil {
+			return result, nil // 执行成功
+		}
+
+		// 检查是否是数据库锁定错误
+		if strings.Contains(err.Error(), "database is locked") ||
+			strings.Contains(err.Error(), "SQLITE_BUSY") {
+			// 计算递增的等待时间
+			waitTime := time.Duration(100*(retries+1)) * time.Millisecond
+			logger.Warn("%s遇到数据库锁定，等待%v后重试 (尝试 %d/%d): %v",
+				operation, waitTime, retries+1, maxRetries, err)
+			time.Sleep(waitTime)
+			continue
+		}
+
+		// 对于其他类型的错误，直接返回
+		break
+	}
+
+	return result, err
+}
+
+// UpdateModelCallCount 更新模型调用次数
+func UpdateModelCallCount(modelId string) error {
+	if modelDB == nil {
+		return fmt.Errorf("数据库连接未初始化")
+	}
+
+	// 验证模型ID
+	if modelId == "" {
+		return fmt.Errorf("模型ID不能为空")
+	}
+
+	// 使用带重试逻辑的数据库操作
+	stmt := `UPDATE models 
+			SET call_count = call_count + 1, 
+				updated_at = CURRENT_TIMESTAMP 
+			WHERE id = ? AND deleted_at IS NULL`
+
+	_, err := ModelDBExecWithRetry("更新模型调用次数", 3, stmt, modelId)
+	if err != nil {
+		logger.Error("更新模型 %s 调用次数失败: %v", modelId, err)
+		return err
+	}
+
+	logger.Info("更新模型 %s 调用次数成功", modelId)
+	return nil
+}
+
+// GetTopModels 获取调用次数最多的模型
+func GetTopModels(limit int) ([]Model, error) {
+	if modelDB == nil {
+		return nil, fmt.Errorf("数据库连接未初始化")
+	}
+
+	if limit <= 0 {
+		limit = 3 // 默认返回前3个
+	}
+
+	// 查询调用次数最多的模型
+	query := `SELECT id, is_free, is_giftable, strategy_id, type, call_count 
+			  FROM models 
+			  WHERE deleted_at IS NULL AND call_count > 0
+			  ORDER BY call_count DESC 
+			  LIMIT ?`
+
+	rows, err := modelDB.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var models []Model
+	for rows.Next() {
+		var model Model
+		if err := rows.Scan(&model.ID, &model.IsFree, &model.IsGiftable, &model.StrategyID, &model.Type, &model.CallCount); err != nil {
+			return nil, err
+		}
+		models = append(models, model)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return models, nil
 }

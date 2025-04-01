@@ -1,6 +1,5 @@
 /**
   @author: Hanhai
-  @since: 2025/3/17 11:55:04
   @desc: API 测试函数
 **/
 
@@ -55,8 +54,7 @@ func TestChatAPI(apiKey string) (bool, string, error) {
 	}
 
 	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	utils.SetCommonHeaders(req, apiKey)
 
 	// 创建HTTP客户端
 	client := utils.CreateClient()
@@ -137,8 +135,7 @@ func TestImageGeneration(apiKey string) (bool, string, error) {
 	}
 
 	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	utils.SetCommonHeaders(req, apiKey)
 
 	logger.Info("图片生成测试使用的API密钥: %s", utils.MaskKey(apiKey))
 
@@ -228,8 +225,7 @@ func TestModelsAPI(apiKey string) (bool, string, error) {
 	}
 
 	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	utils.SetCommonHeaders(req, apiKey)
 
 	logger.Info("模型列表测试使用的API密钥: %s", utils.MaskKey(apiKey))
 
@@ -330,8 +326,7 @@ func TestRerankAPI(apiKey string) (bool, string, error) {
 	}
 
 	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	utils.SetCommonHeaders(req, apiKey)
 
 	logger.Info("重排序测试使用的API密钥: %s", utils.MaskKey(apiKey))
 
@@ -422,8 +417,7 @@ func TestEmbeddings(apiKey string) (bool, string, error) {
 	}
 
 	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	utils.SetCommonHeaders(req, apiKey)
 
 	// 创建HTTP客户端
 	client := utils.CreateClient()

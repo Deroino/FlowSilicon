@@ -1,7 +1,7 @@
 /**
  @author: AI
  @since: 2025/3/26 12:34:00
- @desc: 模型管理页面脚本
+ @desc: 模型管理页面脚本，实现模型列表展示、筛选、状态切换和策略设置功能
  **/
 
 // 调试模式开关
@@ -111,11 +111,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // 从localStorage加载自动保存设置
     const savedAutoSave = localStorage.getItem('autoSaveChanges') === 'true';
     document.getElementById('auto-save-changes').checked = savedAutoSave;
-    
-    // 显示模态框时同步自动保存设置
-    document.getElementById('model-edit-modal').addEventListener('show.bs.modal', function() {
-        document.getElementById('edit-modal-auto-save').checked = document.getElementById('auto-save-changes').checked;
-    });
     
     // 添加Ctrl+S快捷键保存功能
     document.addEventListener('keydown', function(event) {
@@ -253,6 +248,7 @@ function renderModels() {
                 <td><span class="status-tag ${isDisabled ? 'disabled' : 'enabled'}">${isDisabled ? '已禁用' : '已启用'}</span></td>
                 <td class="action-buttons">
                     <button class="btn btn-sm btn-outline-primary edit-model" data-id="${model.id}">编辑</button>
+                    <button class="btn btn-sm btn-outline-secondary copy-model khaki-btn" data-id="${model.id}">复制</button>
                     <button class="btn btn-sm ${isDisabled ? 'btn-outline-success enable-model' : 'btn-outline-danger disable-model'}" data-id="${model.id}">
                         ${isDisabled ? '启用' : '禁用'}
                     </button>
@@ -263,6 +259,11 @@ function renderModels() {
             // 绑定编辑按钮事件
             tr.querySelector('.edit-model').addEventListener('click', function() {
                 editModel(model);
+            });
+            
+            // 绑定复制按钮事件
+            tr.querySelector('.copy-model').addEventListener('click', function() {
+                copyModel(model);
             });
             
             // 绑定启用/禁用按钮事件
@@ -364,7 +365,6 @@ function saveModelEdit() {
     const isFree = document.getElementById('edit-model-free').checked;
     const isGiftable = document.getElementById('edit-model-giftable').checked;
     const isEnabled = document.getElementById('edit-model-status').checked;
-    const autoSave = document.getElementById('edit-modal-auto-save').checked;
     
     // 找到当前模型
     const modelIndex = allModels.findIndex(m => m.id === modelId);
@@ -393,12 +393,8 @@ function saveModelEdit() {
     // 更新模型列表显示
     renderModels();
     
-    // 如果选择了自动保存，则立即保存更改
-    if (autoSave) {
-        saveAllChanges();
-    } else {
-        showToast('模型更新成功，点击"保存更改"按钮保存到服务器', 'success');
-    }
+    // 立即保存更改
+    saveAllChanges();
 }
 
 // 切换模型启用/禁用状态
@@ -411,15 +407,8 @@ function toggleModelStatus(modelId, currentlyDisabled) {
     
     renderModels();
     
-    // 检查是否开启了自动保存
-    const autoSave = document.getElementById('auto-save-changes').checked;
-    
-    // 如果选择了自动保存，则立即保存更改
-    if (autoSave) {
-        saveAllChanges();
-    } else {
-        showToast(`模型已${currentlyDisabled ? '启用' : '禁用'}，点击"保存更改"按钮保存到服务器`, 'success');
-    }
+    // 立即保存更改
+    saveAllChanges();
 }
 
 // 批量禁用模型
@@ -439,15 +428,8 @@ function batchDisableModels() {
     
     renderModels();
     
-    // 检查是否开启了自动保存
-    const autoSave = document.getElementById('auto-save-changes').checked;
-    
-    // 如果选择了自动保存，则立即保存更改
-    if (autoSave) {
-        saveAllChanges();
-    } else {
-        showToast(`已禁用 ${selectedModelIds.length} 个模型，点击"保存更改"按钮保存到服务器`, 'success');
-    }
+    // 立即保存更改
+    saveAllChanges();
 }
 
 // 同步模型
@@ -541,4 +523,17 @@ function showToast(message, type = 'info') {
     // 显示Toast
     const bsToast = new bootstrap.Toast(toast, { delay: TOAST_DISPLAY_TIME });
     bsToast.show();
+}
+
+// 复制模型
+function copyModel(sourceModel) {
+    // 复制模型ID到剪贴板
+    navigator.clipboard.writeText(sourceModel.id)
+        .then(() => {
+            showToast(`已复制模型名称: ${sourceModel.id}`, 'success');
+        })
+        .catch(err => {
+            console.error('复制到剪贴板失败:', err);
+            showToast('复制模型名称失败', 'error');
+        });
 }

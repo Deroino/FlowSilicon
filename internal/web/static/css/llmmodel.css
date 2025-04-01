@@ -242,6 +242,17 @@ table.table-hover tbody tr:hover {
     border-left-color: #17a2b8;
 }
 
+/* 卡其色按钮样式 */
+.khaki-btn {
+    color: #8B7E66 !important;
+    border-color: #D2B48C !important;
+}
+
+.khaki-btn:hover {
+    background-color: #F0E68C !important;
+    color: #6B5B46 !important;
+}
+
 /* 响应式调整 */
 @media (max-width: 768px) {
     .search-filter {

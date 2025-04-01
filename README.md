@@ -1,30 +1,24 @@
 # <img src="./img/logo.png" alt="FlowSilicon Logo" width="50"/> FlowSilicon
 
 <p align="center">
-  <img src="https://img.shields.io/badge/版本-1.3.8-blue.svg" alt="版本">
+  <img src="https://img.shields.io/badge/版本-1.3.9-blue.svg" alt="版本">
   <img src="https://img.shields.io/badge/语言-Go-00ADD8.svg" alt="Go">
   <img src="https://img.shields.io/badge/许可证-Apache--2.0-green.svg" alt="许可证">
 </p>
 
 
+## 界面预览
 
-> [!note]
->
-> 功能已经基本实现, 代码还在整理和优化
+<details><summary>点击展开网页效果</summary>
 
+|   功能   |                     预览                      |
+| :------: | :-------------------------------------------: |
+|  主界面  | ![image-20250317180521514](./img/image12.png) |
+| 系统设置 | ![image-20250317180521514](./img/image14.png) |
+| 模型管理 | ![image-20250317180521514](./img/image13.png) |
+|   登录   | ![image-20250317180521514](./img/image15.png) |
 
-
-## 截图
-
-![image-20250317180521514](./img/image9.png)
-
-
-
-![image-20250317180521514](./img/image10.png)
-
-![image-20250317180521514](./img/image11.png)
-
-
+</details>
 
 
 
@@ -119,18 +113,23 @@ FlowSilicon 提供全面的 API 密钥管理功能：
 
 ### Linux
 
-下载并解压最新zip
+注意选择 amd64 or arm64
 
 ```shell
-chmod +x start.sh flowsilicon
+wget https://github.com/HanHai-Space/FlowSilicon/releases/download/1.3.9/flowsilicon-linux-amd64.tar.gz
+
+tar -xzvf flowsilicon-linux-amd64.tar.gz
+
+cd flowsilicon-linux-amd64
+
 ./start.sh
 ```
 
 ### Docker
 
 ```shell
-docker pull ghcr.io/hanhai-space/flowsilicon:1.3.8
-docker run -p 3016:3016 ghcr.io/hanhai-space/flowsilicon:1.3.8
+docker pull ghcr.io/hanhai-space/flowsilicon:1.3.9
+docker run -p 3016:3016 ghcr.io/hanhai-space/flowsilicon:1.3.9
 ```
 
 ### 📥 从源码构建

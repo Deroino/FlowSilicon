@@ -1,8 +1,7 @@
 /*
 *
 @author: Hanhai
-@since: 2025/3/16 21:57:52
-@desc:
+@desc: Web服务器配置和路由设置，包括API代理、密钥管理和用户界面
 *
 */
 package web
@@ -10,6 +9,7 @@ package web
 import (
 	"embed"
 	"flowsilicon/internal/config"
+	"flowsilicon/internal/middleware"
 	"flowsilicon/internal/proxy"
 	"html/template"
 	"net/http"
@@ -29,32 +29,36 @@ func SetupApiProxy(router *gin.Engine) {
 	// 代理所有 API 请求
 	router.Any("/api/*path", proxy.HandleApiProxy)
 
+	// 添加API密钥验证中间件
+	openaiGroup := router.Group("")
+	openaiGroup.Use(middleware.APIKeyMiddleware())
+
 	// 添加对 OpenAI 格式 API 的支持
-	router.Any("/v1/*path", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/v1/*path", proxy.HandleOpenAIProxy)
 
 	// 添加对无版本号路径的支持
 	// 聊天完成
-	router.Any("/chat", proxy.HandleOpenAIProxy)
-	router.Any("/chat/*path", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/chat", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/chat/*path", proxy.HandleOpenAIProxy)
 
 	// 文本完成
-	router.Any("/completions", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/completions", proxy.HandleOpenAIProxy)
 
 	// 嵌入
-	router.Any("/embeddings", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/embeddings", proxy.HandleOpenAIProxy)
 
 	// 图像生成
-	router.Any("/images", proxy.HandleOpenAIProxy)
-	router.Any("/images/*path", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/images", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/images/*path", proxy.HandleOpenAIProxy)
 
 	// 模型列表
-	router.Any("/models", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/models", proxy.HandleOpenAIProxy)
 
 	// 重排序
-	router.Any("/rerank", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/rerank", proxy.HandleOpenAIProxy)
 
 	// 用户信息
-	router.Any("/user/info", proxy.HandleOpenAIProxy)
+	openaiGroup.Any("/user/info", proxy.HandleOpenAIProxy)
 }
 
 // SetupKeysAPI 设置API密钥相关路由
@@ -74,6 +78,10 @@ func SetupKeysAPI(router *gin.Engine) {
 
 // SetupWebServer 设置 Web 服务器
 func SetupWebServer(router *gin.Engine) {
+	// 加载模板
+	templ := template.Must(template.New("").ParseFS(templatesFS, "templates/*.html"))
+	router.SetHTMLTemplate(templ)
+
 	// 添加禁用静态文件缓存的中间件
 	router.Use(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/static-fs/") {
@@ -84,20 +92,31 @@ func SetupWebServer(router *gin.Engine) {
 		c.Next()
 	})
 
-	// 加载模板
-	templ := template.Must(template.New("").ParseFS(templatesFS, "templates/*.html"))
-	router.SetHTMLTemplate(templ)
-
 	// 静态文件 - 使用嵌入式文件系统
 	router.StaticFS("/static", http.FS(staticFS))
 
-	// 静态文件 - 直接从文件系统提供
-	router.Static("/static-fs", "./web/static")
+	// 静态文件 - 改用嵌入式文件系统，而不是从文件系统直接提供
+	// 确保从嵌入式文件系统中提供静态资源
+	router.GET("/static-fs/*filepath", func(c *gin.Context) {
+		path := c.Param("filepath")
+		// 嵌入式文件系统中的文件路径包括"static"前缀
+		resourcePath := "static" + path
+		c.FileFromFS(resourcePath, http.FS(staticFS))
+	})
 
 	// 网站图标
 	router.GET("/favicon.ico", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "/static-fs/img/favicon_32.ico")
 	})
+
+	// 添加身份验证相关路由
+	router.GET("/login", handleLoginPage)
+	router.POST("/auth/login", handleLogin)
+	router.GET("/logout", handleLogout)
+	router.GET("/auth/check", handleAuthCheck)
+
+	// 应用身份验证中间件
+	router.Use(middleware.AuthMiddleware())
 
 	// 页面路由
 	router.GET("/", func(c *gin.Context) {
@@ -108,6 +127,7 @@ func SetupWebServer(router *gin.Engine) {
 			"auto_update_interval":   config.GetConfig().App.AutoUpdateInterval,
 			"stats_refresh_interval": config.GetConfig().App.StatsRefreshInterval,
 			"rate_refresh_interval":  config.GetConfig().App.RateRefreshInterval,
+			"min_balance_threshold":  config.GetConfig().App.MinBalanceThreshold,
 		})
 	})
 
@@ -140,6 +160,9 @@ func SetupWebServer(router *gin.Engine) {
 	router.POST("/models/sync", syncModelsHandler)
 	router.POST("/models/strategy", updateModelStrategyHandler)
 	router.DELETE("/models/strategy", deleteModelStrategyHandler)
+
+	// 获取常用模型
+	router.GET("/models/top", getTopModelsHandler)
 
 	// 模型管理页面-模型管理API
 	router.GET("/models-api/list", getModelsAPIHandler)

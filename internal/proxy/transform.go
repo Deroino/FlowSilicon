@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 21:36:12
-  @desc:
+  @desc: 请求和响应转换模块，实现不同API格式间的转换和兼容
 **/
 
 package proxy
@@ -17,8 +16,7 @@ import (
 	"time"
 )
 
-// isInferenceModel 检查模型是否是推理模型(type=7)
-func isInferenceModel(modelName string) bool {
+func isReasonModel(modelName string) bool {
 	// 首先检查是否是DeepSeek R1，这是已知的推理模型
 	if strings.Contains(strings.ToLower(modelName), "deepseek") && strings.Contains(modelName, "r1") {
 		return true
@@ -68,7 +66,7 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 		// 检查是否有model字段
 		if model, ok := requestData["model"].(string); ok {
 			// 检查是否是推理模型
-			if isInferenceModel(model) {
+			if isReasonModel(model) {
 				// 检查并设置合适的max_tokens值
 				if maxTokens, exists := requestData["max_tokens"]; !exists {
 					// 如果未设置max_tokens，设置默认值16000
@@ -108,7 +106,7 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 		// 检查是否有model字段
 		if model, ok := requestData["model"].(string); ok {
 			// 检查是否是推理模型
-			if isInferenceModel(model) {
+			if isReasonModel(model) {
 				// 检查并设置合适的max_tokens值
 				if maxTokens, exists := requestData["max_tokens"]; !exists {
 					// 如果未设置max_tokens，设置默认值16000
@@ -298,6 +296,56 @@ func TransformResponseBody(body []byte, path string) ([]byte, error) {
 				logger.Info("识别到DeepSeek模型响应: %s", model)
 			}
 
+			// 检查响应中是否有usage字段
+			if usage, hasUsage := responseData["usage"].(map[string]interface{}); hasUsage {
+				// 记录token使用情况
+				promptTokens := 0
+				completionTokens := 0
+				totalTokens := 0
+
+				if pt, ok := usage["prompt_tokens"].(float64); ok {
+					promptTokens = int(pt)
+				}
+
+				if ct, ok := usage["completion_tokens"].(float64); ok {
+					completionTokens = int(ct)
+				}
+
+				if tt, ok := usage["total_tokens"].(float64); ok {
+					totalTokens = int(tt)
+				} else if promptTokens > 0 || completionTokens > 0 {
+					// 如果没有total_tokens但有其他token计数，计算total_tokens
+					totalTokens = promptTokens + completionTokens
+					usage["total_tokens"] = float64(totalTokens)
+					responseData["usage"] = usage
+
+					// 重新编码修改后的响应
+					updatedBody, err := json.Marshal(responseData)
+					if err == nil {
+						logger.Info("补充了total_tokens字段: prompt=%d, completion=%d, total=%d",
+							promptTokens, completionTokens, totalTokens)
+						return updatedBody, nil
+					}
+				}
+
+				logger.Info("响应包含token统计: prompt=%d, completion=%d, total=%d",
+					promptTokens, completionTokens, totalTokens)
+			} else {
+				// 如果响应中没有usage字段，尝试创建一个
+				logger.Info("响应中没有找到usage字段，将创建一个基础统计")
+				responseData["usage"] = map[string]interface{}{
+					"prompt_tokens":     0,
+					"completion_tokens": 0,
+					"total_tokens":      0,
+				}
+
+				// 重新编码修改后的响应
+				updatedBody, err := json.Marshal(responseData)
+				if err == nil {
+					return updatedBody, nil
+				}
+			}
+
 			// 已经是标准格式，不需要转换
 			return body, nil
 		}
@@ -432,6 +480,28 @@ func TransformResponseBody(body []byte, path string) ([]byte, error) {
 				logger.Info("检测到embedding字段，处理embeddings响应")
 				logger.Info("embedding字段类型: %T", embedding)
 
+				// 从原始响应中获取或估算token数量
+				promptTokens := 0
+				totalTokens := 0
+
+				// 尝试从原始响应中获取token统计
+				if usage, hasUsage := responseData["usage"].(map[string]interface{}); hasUsage {
+					if pt, ok := usage["prompt_tokens"].(float64); ok {
+						promptTokens = int(pt)
+					}
+
+					if tt, ok := usage["total_tokens"].(float64); ok {
+						totalTokens = int(tt)
+					} else {
+						totalTokens = promptTokens // 对于embeddings，prompt_tokens通常等于total_tokens
+					}
+				}
+
+				// 如果无法从响应中获取，使用默认值
+				if totalTokens == 0 {
+					totalTokens = 100 // 默认值
+				}
+
 				// 创建OpenAI格式的embeddings响应
 				openAIResponse := map[string]interface{}{
 					"object": "list",
@@ -444,8 +514,8 @@ func TransformResponseBody(body []byte, path string) ([]byte, error) {
 					},
 					"model": "embedding-2",
 					"usage": map[string]interface{}{
-						"prompt_tokens": 0,
-						"total_tokens":  0,
+						"prompt_tokens": promptTokens,
+						"total_tokens":  totalTokens,
 					},
 				}
 
@@ -580,7 +650,7 @@ func TransformStreamEvent(data []byte) ([]byte, error) {
 	if _, hasChoices := eventData["choices"]; hasChoices {
 		// 检查是否是推理模型的回复
 		if model, hasModel := eventData["model"].(string); hasModel {
-			if isInferenceModel(model) {
+			if isReasonModel(model) {
 				logger.Info("检测到推理模型%s的流式响应", model)
 
 				// 确保choices是数组
@@ -629,6 +699,12 @@ func TransformStreamEvent(data []byte) ([]byte, error) {
 			}
 		}
 
+		// 检查是否有usage字段
+		if _, hasUsage := eventData["usage"]; !hasUsage {
+			// 如果没有usage字段，检查是否可以从其他可能的位置提取token信息
+			// 暂不处理，保持原样
+		}
+
 		// 已经是OpenAI格式，不需要转换
 		return data, nil
 	}
@@ -658,6 +734,11 @@ func TransformStreamEvent(data []byte) ([]byte, error) {
 	// 检查是否有finish_reason
 	if reason, hasReason := eventData["finish_reason"].(string); hasReason && reason != "" {
 		openAIEvent["choices"].([]map[string]interface{})[0]["finish_reason"] = reason
+	}
+
+	// 检查并保留usage信息
+	if usage, hasUsage := eventData["usage"].(map[string]interface{}); hasUsage {
+		openAIEvent["usage"] = usage
 	}
 
 	// 转换为JSON

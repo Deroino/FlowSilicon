@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 20:42:44
-  @desc:
+  @desc: API密钥选择器，提供多种智能选择策略和负载均衡算法
 **/
 
 package key

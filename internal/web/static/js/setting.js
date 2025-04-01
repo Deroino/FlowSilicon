@@ -1,7 +1,7 @@
 /**
  @author: AI
  @since: 2025/3/23 22:30:16
- @desc:
+ @desc: 设置页面功能实现，包含配置加载、保存、模型策略管理和界面交互
  **/
 
 // 计时器相关常量
@@ -43,6 +43,29 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('settings-file-input').addEventListener('change', function(event) {
         if (event.target.files.length > 0) {
             importSettings(event.target.files[0]);
+        }
+    });
+    
+    // 绑定生成API密钥按钮点击事件
+    document.getElementById('generate-api-key').addEventListener('click', function() {
+        const apiKey = generateApiKey();
+        const apiKeyInput = document.getElementById('api-key');
+        apiKeyInput.value = apiKey;
+        
+        // 复制到剪贴板（标记为生成的密钥）
+        copyToClipboard(apiKey, true);
+    });
+
+    // 绑定复制API密钥按钮点击事件
+    document.getElementById('copy-api-key').addEventListener('click', function() {
+        const apiKeyInput = document.getElementById('api-key');
+        const apiKey = apiKeyInput.value.trim();
+        
+        if (apiKey) {
+            // 复制到剪贴板（标记为非生成的密钥）
+            copyToClipboard(apiKey, false);
+        } else {
+            showToast('API密钥为空，无法复制', 'warning');
         }
     });
 
@@ -171,14 +194,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // 绑定返回主页按钮事件
     document.getElementById('back-to-home').addEventListener('click', function() {
         // 先保存设置，然后在保存完成后返回主页
-        try {
-            // 显示正在保存的消息
-            showToast('正在保存配置，即将返回主页...', 'info');
-            
+        try {            
             // 收集表单数据
             const config = {
                 server: {
                     port: getValue('server-port')
+                },
+                security:{
+                    password_enabled: getValue('password-enabled'),
+                    expiration_minutes: getValue('expiration-minutes'),
+                    api_key_enabled: getValue('api-key-enabled'),
+                    api_key: getValue('api-key'),
+                    password: getValue('password')
                 },
                 api_proxy: {
                     base_url: getValue('api-base-url'),
@@ -235,7 +262,10 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(response => {
                 if (!response.ok) {
-                    throw new Error('保存失败，状态码: ' + response.status);
+                    return response.json().then(errorData => {
+                        showToast('保存设置失败: ' + errorData.error,'error');
+                        throw new Error(errorData.error || `保存失败：${errorData.statusText}`);
+                    });
                 }
                 return response.json();
             })
@@ -248,13 +278,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }, 800);
             })
             .catch(error => {
-                console.error('保存失败:', error);
-                showToast('保存失败: ' + error.message + '，3秒后仍将返回主页', 'error');
-                
-                // 即使发生错误，也在一定时间后返回主页
-                setTimeout(function() {
-                    window.location.href = '/';
-                }, 3000);
+                showToast('保存设置失败: ' + error.message, 'error');
             });
         } catch (err) {
             console.error('处理过程中发生异常:', err);
@@ -279,6 +303,9 @@ document.addEventListener('DOMContentLoaded', function() {
             saveSettings();
         }
     });
+
+    // 保存所有复选框的初始状态
+    saveAllCheckboxStates();
 });
 
 /**
@@ -445,7 +472,7 @@ function loadModelList() {
         searchInput.type = 'text';
         searchInput.className = 'form-control';
         searchInput.id = 'model-search-input';
-        searchInput.placeholder = '输入模型名称...';
+        searchInput.placeholder = '选择或输入模型名称(红色付费,黄色赠费,绿色免费)...';
         
         // 创建下拉选项容器
         const dropdownContainer = document.createElement('div');
@@ -648,6 +675,16 @@ function populateForm(config) {
     setValue('http-proxy', config.proxy.http_proxy);
     setValue('https-proxy', config.proxy.https_proxy);
     setValue('socks-proxy', config.proxy.socks_proxy);
+    
+    // 安全设置
+    if (config.security) {
+        setValue('password-enabled', config.security.password_enabled);
+        // 不回显密码，密码字段留空
+        setValue('expiration-minutes', config.security.expiration_minutes);
+        // API密钥设置
+        setValue('api-key-enabled', config.security.api_key_enabled);
+        setValue('api-key', config.security.api_key || '');
+    }
     
     // 应用设置
     setValue('app-title', config.app.title);
@@ -1081,6 +1118,12 @@ function saveSettings(callback) {
             proxy_type: getValue('proxy-type'),
             enabled: getValue('proxy-enabled')
         },
+        security: {
+            password_enabled: getValue('password-enabled'),
+            expiration_minutes: getValue('expiration-minutes'),
+            api_key_enabled: getValue('api-key-enabled'),
+            api_key: getValue('api-key')
+        },
         app: {
             title: appTitle,
             min_balance_threshold: getValue('min-balance'),
@@ -1106,6 +1149,27 @@ function saveSettings(callback) {
             level: getValue('log-level')
         }
     };
+    
+    // 检查是否尝试启用API密钥验证但没有提供API密钥
+    if (config.security.api_key_enabled) {
+        const apiKey = getValue('api-key');
+        // 检查是否有现有API密钥（通过检查api-key-enabled复选框是否已经被选中）
+        const apiKeyEnabledOrig = document.getElementById('api-key-enabled').hasAttribute('data-orig-checked');
+        
+        // 如果没有已存在的API密钥（新启用API密钥验证）且没有提供新API密钥
+        if (!apiKeyEnabledOrig && !apiKey) {
+            showToast('启用API密钥验证时必须设置API密钥', 'error');
+            // 聚焦API密钥输入框
+            document.getElementById('api-key').focus();
+            return;
+        }
+    }
+
+    // 获取密码值，仅当字段不为空时才添加
+    const password = getValue('password');
+    if (password !== '') {
+        config.security.password = password;
+    }
 
     // 发送到服务器
     fetch('/settings/config', {
@@ -1117,7 +1181,10 @@ function saveSettings(callback) {
     })
     .then(response => {
         if (!response.ok) {
-            throw new Error('保存失败，状态码: ' + response.status);
+            // 尝试从响应中解析错误信息
+            return response.json().then(errorData => {
+                throw new Error(errorData.error || `保存失败：${errorData.statusText}`);
+            });
         }
         return response.json();
     })
@@ -1137,6 +1204,10 @@ function saveSettings(callback) {
         // 显示成功消息
         showToast('设置已保存', 'success');
 
+        // 保存初始复选框状态（用于下次验证）
+        saveCheckboxOriginalState('password-enabled');
+        saveCheckboxOriginalState('api-key-enabled');
+
         // 执行回调
         if (typeof callback === 'function') {
             callback();
@@ -1144,8 +1215,31 @@ function saveSettings(callback) {
     })
     .catch(error => {
         console.error('保存设置失败:', error);
-        showToast('保存设置失败: ' + error.message, 'error');
+        // 显示优化过的错误消息，避免重复信息
+        const errorMessage = error.message.replace(/保存失败：保存失败[，:]\s*/i, '');
+        showToast('保存设置失败: ' + errorMessage, 'error');
     });
+}
+
+/**
+ * 保存复选框的原始状态到data属性
+ * @param {string} id - 复选框元素的ID
+ */
+function saveCheckboxOriginalState(id) {
+    const checkbox = document.getElementById(id);
+    if (checkbox && checkbox.checked) {
+        checkbox.setAttribute('data-orig-checked', 'true');
+    } else if (checkbox) {
+        checkbox.removeAttribute('data-orig-checked');
+    }
+}
+
+/**
+ * 在DOM加载完成后保存所有复选框的初始状态
+ */
+function saveAllCheckboxStates() {
+    saveCheckboxOriginalState('password-enabled');
+    saveCheckboxOriginalState('api-key-enabled');
 }
 
 /**
@@ -1257,7 +1351,7 @@ function exportSettings() {
             })
             .then(config => {
                 // 添加版本标记，用于将来兼容性检查
-                config.export_version = "v1.3.8"; // 根据当前版本号调整
+                config.export_version = "v1.3.9"; // 根据当前版本号调整
                 config.export_date = new Date().toISOString();
                 
                 // 将配置转换为JSON字符串
@@ -1352,7 +1446,7 @@ function importSettings(file) {
                             loadSettings();
                             
                             // 如果存在版本差异，提示用户
-                            if (importedConfig.export_version && importedConfig.export_version !== "v1.3.8") {
+                            if (importedConfig.export_version && importedConfig.export_version !== "v1.3.9") {
                                 showToast(`注意：导入的配置来自版本 ${importedConfig.export_version}，可能存在兼容性差异`, 'info');
                             }
                         })
@@ -1526,5 +1620,91 @@ function onModelSelectionChange() {
     if (selectedModel) {
         const defaultStrategy = getDefaultStrategy(selectedModel);
         strategySelect.value = defaultStrategy;
+    }
+}
+
+/**
+ * 生成API密钥
+ * @returns {string} 生成的API密钥
+ */
+function generateApiKey() {
+    // 创建一个随机字符串，长度为32-8=24（减去前缀"sk-"的长度）
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = 'sk-';
+    
+    // 生成24个随机字符
+    for (let i = 0; i < 24; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    
+    return result;
+}
+
+/**
+ * 复制文本到剪贴板
+ * @param {string} text - 要复制的文本
+ * @param {boolean} isGenerated - 是否是生成的密钥
+ */
+function copyToClipboard(text, isGenerated) {
+    // 使用现代的剪贴板API
+    if (navigator.clipboard && window.isSecureContext) {
+        // 如果支持Clipboard API且在安全上下文中
+        navigator.clipboard.writeText(text)
+            .then(() => {
+                if (isGenerated) {
+                    showToast('已生成新的API密钥并复制到剪贴板', 'success');
+                } else {
+                    showToast('已复制API密钥到剪贴板', 'success');
+                }
+            })
+            .catch(error => {
+                console.error('复制到剪贴板失败:', error);
+                if (isGenerated) {
+                    showToast('已生成新的API密钥，但复制到剪贴板失败', 'warning');
+                } else {
+                    showToast('复制到剪贴板失败', 'warning');
+                }
+            });
+    } else {
+        // 兼容性方法：创建临时文本区域
+        try {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            
+            // 使文本区域不可见
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            
+            // 选择文本并复制
+            textArea.focus();
+            textArea.select();
+            const success = document.execCommand('copy');
+            
+            // 清理临时元素
+            document.body.removeChild(textArea);
+            
+            if (success) {
+                if (isGenerated) {
+                    showToast('已生成新的API密钥并复制到剪贴板', 'success');
+                } else {
+                    showToast('已复制API密钥到剪贴板', 'success');
+                }
+            } else {
+                if (isGenerated) {
+                    showToast('已生成新的API密钥，但复制到剪贴板失败', 'warning');
+                } else {
+                    showToast('复制到剪贴板失败', 'warning');
+                }
+            }
+        } catch (err) {
+            console.error('复制到剪贴板失败:', err);
+            if (isGenerated) {
+                showToast('已生成新的API密钥，但复制到剪贴板失败', 'warning');
+            } else {
+                showToast('复制到剪贴板失败', 'warning');
+            }
+        }
     }
 }

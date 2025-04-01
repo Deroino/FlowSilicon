@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/27 00:11:34
-  @desc:
+  @desc: 模型定义模块，包含模型结构体和预定义模型列表
 **/
 
 package model
@@ -17,6 +16,7 @@ type Model struct {
 	IsGiftable bool       `json:"is_giftable"` // 是否可用赠费
 	StrategyID int        `json:"strategy_id"` // 模型使用的策略ID
 	Type       int        `json:"type"`        // 模型类型：1-对话，2-生图，3-视频，4-语音，5-嵌入，6-重排序，7-推理
+	CallCount  int        `json:"call_count"`  // 调用次数
 	CreatedAt  time.Time  `json:"created_at"`  // 创建时间
 	UpdatedAt  time.Time  `json:"updated_at"`  // 更新时间
 	DeletedAt  *time.Time `json:"deleted_at"`  // 删除时间（软删除）

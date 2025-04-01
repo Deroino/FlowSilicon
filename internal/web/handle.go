@@ -1,17 +1,18 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 21:56:00
-  @desc:
+  @desc: Web请求处理函数，实现API密钥管理、认证、统计和测试接口的功能
 **/
 
 package web
 
 import (
 	"encoding/json"
+	"flowsilicon/internal/auth"
 	"flowsilicon/internal/common"
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
+	"flowsilicon/internal/middleware"
 	"flowsilicon/internal/model"
 	"fmt"
 	"io"
@@ -59,8 +60,9 @@ func handleListKeys(c *gin.Context) {
 // handleAddKey 处理添加 API 密钥的请求
 func handleAddKey(c *gin.Context) {
 	var req struct {
-		Key     string  `json:"key" binding:"required"`
-		Balance float64 `json:"balance"`
+		Key              string  `json:"key" binding:"required"`
+		Balance          float64 `json:"balance"`
+		AllowZeroBalance bool    `json:"allow_zero_balance"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -81,7 +83,7 @@ func handleAddKey(c *gin.Context) {
 	}
 
 	// 检查余额是否小于或等于0
-	if req.Balance <= 0 {
+	if req.Balance <= 0 && !req.AllowZeroBalance {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "无法添加余额小于或等于0的API密钥",
 			"balance": req.Balance,
@@ -216,8 +218,9 @@ func handleGetKeyMode(c *gin.Context) {
 // handleBatchAddKeys 处理批量添加 API 密钥的请求
 func handleBatchAddKeys(c *gin.Context) {
 	var req struct {
-		Keys    []string `json:"keys" binding:"required"`
-		Balance float64  `json:"balance"`
+		Keys             []string `json:"keys" binding:"required"`
+		Balance          float64  `json:"balance"`
+		AllowZeroBalance bool     `json:"allow_zero_balance"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -241,8 +244,8 @@ func handleBatchAddKeys(c *gin.Context) {
 				}
 			}
 
-			// 只添加余额大于0的密钥
-			if balance > 0 {
+			// 根据AllowZeroBalance参数决定是否添加余额小于等于0的密钥
+			if balance > 0 || req.AllowZeroBalance {
 				config.AddApiKey(_key, balance)
 				addedCount++
 			} else {
@@ -474,9 +477,34 @@ func handleEnableKey(c *gin.Context) {
 
 	// 启用 API 密钥
 	if success := config.EnableApiKey(key); !success {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "API key not found",
-		})
+		// 查找密钥检查是否存在
+		keys := config.GetApiKeys()
+		var keyExists bool
+		var balance float64
+		var minThreshold float64
+
+		for _, k := range keys {
+			if k.Key == key {
+				keyExists = true
+				balance = k.Balance
+				break
+			}
+		}
+
+		if config.GetConfig() != nil {
+			minThreshold = config.GetConfig().App.MinBalanceThreshold
+		}
+
+		if keyExists {
+			// 如果密钥存在但启用失败，很可能是余额不足
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("无法启用API密钥：余额 %.2f 低于最低阈值 %.2f", balance, minThreshold),
+			})
+		} else {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "API密钥未找到",
+			})
+		}
 		return
 	}
 
@@ -910,6 +938,13 @@ func handleGetSettings(c *gin.Context) {
 			"proxy_type":  cfg.Proxy.ProxyType,
 			"enabled":     cfg.Proxy.Enabled,
 		},
+		"security": gin.H{
+			"password_enabled":   cfg.Security.PasswordEnabled,
+			"expiration_minutes": cfg.Security.ExpirationMinutes,
+			"api_key_enabled":    cfg.Security.ApiKeyEnabled,
+			"api_key":            cfg.Security.ApiKey,
+			// 不返回哈希后的密码
+		},
 		"app": gin.H{
 			"title":                         cfg.App.Title,
 			"min_balance_threshold":         cfg.App.MinBalanceThreshold,
@@ -942,7 +977,16 @@ func handleGetSettings(c *gin.Context) {
 
 // handleSaveSettings 处理保存系统设置的请求
 func handleSaveSettings(c *gin.Context) {
-	// 先获取当前配置作为默认值
+	// 获取设置数据
+	var configData map[string]interface{}
+	if err := c.ShouldBindJSON(&configData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("无效的请求数据: %v", err),
+		})
+		return
+	}
+
+	// 获取当前配置作为基础
 	currentConfig := config.GetConfig()
 	if currentConfig == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -951,17 +995,46 @@ func handleSaveSettings(c *gin.Context) {
 		return
 	}
 
-	// 创建配置的副本
-	newConfig := *currentConfig
+	// 验证密码保护和API密钥验证的设置
+	if security, ok := configData["security"].(map[string]interface{}); ok {
+		passwordEnabled, passwordEnabledExists := security["password_enabled"].(bool)
+		password, passwordExists := security["password"].(string)
 
-	// 解析请求体到临时结构
-	var configData map[string]interface{}
-	if err := c.ShouldBindJSON(&configData); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("无效的配置数据: %v", err),
-		})
-		return
+		fmt.Println("passwordEnabledExists", passwordEnabledExists)
+		fmt.Println("passwordEnabled", passwordEnabled)
+		fmt.Println("passwordExists", passwordExists)
+		fmt.Println("password", password)
+
+		// 检查是否尝试启用密码保护但没有提供密码
+		if passwordEnabledExists && passwordEnabled {
+			// 如果当前没有密码，且没有提供新密码，则返回错误
+			if currentConfig.Security.Password == "" && (!passwordExists || password == "") {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "启用密码保护时必须设置密码",
+					"code":  "password_required",
+				})
+				return
+			}
+		}
+
+		// 检查是否尝试启用API密钥验证但没有提供API密钥
+		apiKeyEnabled, apiKeyEnabledExists := security["api_key_enabled"].(bool)
+		apiKey, apiKeyExists := security["api_key"].(string)
+
+		if apiKeyEnabledExists && apiKeyEnabled {
+			// 如果当前没有API密钥，且没有提供新API密钥，则返回错误
+			if currentConfig.Security.ApiKey == "" && (!apiKeyExists || apiKey == "") {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "启用API密钥验证时必须设置API密钥",
+					"code":  "api_key_required",
+				})
+				return
+			}
+		}
 	}
+
+	// 创建一个新的Config对象进行更新
+	newConfig := *currentConfig
 
 	// 服务器设置
 	if server, ok := configData["server"].(map[string]interface{}); ok {
@@ -1031,6 +1104,31 @@ func handleSaveSettings(c *gin.Context) {
 		}
 		if socksProxy, ok := proxy["socks_proxy"].(string); ok {
 			newConfig.Proxy.SocksProxy = socksProxy
+		}
+	}
+
+	// 安全设置
+	if security, ok := configData["security"].(map[string]interface{}); ok {
+		if passwordEnabled, ok := security["password_enabled"].(bool); ok {
+			newConfig.Security.PasswordEnabled = passwordEnabled
+		}
+		if expirationMinutes, ok := security["expiration_minutes"].(float64); ok {
+			newConfig.Security.ExpirationMinutes = int(expirationMinutes)
+		}
+
+		// 处理API密钥设置
+		if apiKeyEnabled, ok := security["api_key_enabled"].(bool); ok {
+			newConfig.Security.ApiKeyEnabled = apiKeyEnabled
+		}
+		if apiKey, ok := security["api_key"].(string); ok {
+			// 允许空API密钥，这样用户可以清除API密钥设置
+			newConfig.Security.ApiKey = apiKey
+		}
+
+		// 处理密码，如果提供了新密码则进行哈希处理
+		if password, ok := security["password"].(string); ok && password != "" {
+			// 使用SHA256哈希保存密码
+			newConfig.Security.Password = auth.HashPassword(password)
 		}
 	}
 
@@ -1273,8 +1371,7 @@ func handleApiKeyProxy(c *gin.Context) {
 	}
 
 	// 添加授权头
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken))
-	req.Header.Set("Content-Type", "application/json")
+	utils.SetCommonHeaders(req, authToken)
 
 	// 创建HTTP客户端并发送请求
 	client := &http.Client{
@@ -1429,8 +1526,7 @@ func fetchRemoteModels(baseURL string) ([]string, int, error) {
 	}
 
 	apikeys := config.GetActiveApiKeys()
-	req.Header.Set("Authorization", "Bearer "+apikeys[0].Key)
-	req.Header.Set("Content-Type", "application/json")
+	utils.SetCommonHeaders(req, apikeys[0].Key)
 
 	// 发送请求
 	client := &http.Client{}
@@ -1812,5 +1908,211 @@ func deleteModelStrategyHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": fmt.Sprintf("成功从数据库删除模型 %s 的策略", req.ModelID),
+	})
+}
+
+// handleLoginPage 处理登录页面请求
+func handleLoginPage(c *gin.Context) {
+	// 获取重定向路径（如果有）
+	redirect, _ := c.Cookie("redirect_after_login")
+
+	// 如果从查询参数中也传入了重定向路径，优先使用它
+	if redirectParam := c.Query("redirect"); redirectParam != "" {
+		redirect = redirectParam
+	}
+
+	// 清除重定向cookie
+	c.SetCookie("redirect_after_login", "", -1, "/", "", false, false)
+
+	// 获取错误信息（如果有）
+	error := c.Query("error")
+
+	c.HTML(http.StatusOK, "login.html", gin.H{
+		"title":    config.GetConfig().App.Title,
+		"redirect": redirect,
+		"error":    error,
+	})
+}
+
+// handleLogin 处理登录请求
+func handleLogin(c *gin.Context) {
+	// 获取表单参数
+	password := c.PostForm("password")
+	redirect := c.PostForm("redirect")
+
+	// 判断是否是AJAX请求
+	isAjax := c.GetHeader("X-Requested-With") == "XMLHttpRequest" ||
+		c.GetHeader("Accept") == "application/json" ||
+		c.Query("format") == "json"
+
+	// 如果没有提供重定向地址，默认使用首页
+	if redirect == "" {
+		redirect = "/"
+	}
+
+	// 获取配置中的密码
+	cfg := config.GetConfig()
+	if cfg == nil || cfg.Security.Password == "" {
+		// 如果没有设置密码
+		if isAjax {
+			c.JSON(http.StatusOK, gin.H{
+				"code":     200,
+				"message":  "认证成功",
+				"redirect": redirect,
+			})
+		} else {
+			c.Redirect(http.StatusFound, redirect)
+		}
+		return
+	}
+
+	// 验证密码
+	if !auth.VerifyPassword(password, cfg.Security.Password) {
+		// 密码错误
+		if isAjax {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"code":    401,
+				"message": "密码错误，请重试",
+			})
+		} else {
+			c.Redirect(http.StatusFound, fmt.Sprintf("/login?error=%s&redirect=%s",
+				"密码错误，请重试", redirect))
+		}
+		return
+	}
+
+	// 确定有效期（默认最少60秒）
+	expirationMinutes := cfg.Security.ExpirationMinutes
+	if expirationMinutes <= 0 {
+		expirationMinutes = 1 // 默认至少1分钟
+	}
+
+	// 生成Cookie
+	cookieValue, err := auth.GenerateCookie(expirationMinutes)
+	if err != nil {
+		logger.Error("生成认证Cookie失败: %v", err)
+		if isAjax {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    500,
+				"message": "登录处理失败，请稍后重试",
+			})
+		} else {
+			c.Redirect(http.StatusFound, fmt.Sprintf("/login?error=%s&redirect=%s",
+				"登录处理失败，请稍后重试", redirect))
+		}
+		return
+	}
+
+	// 设置Cookie - 始终使用绝对过期时间
+	maxAge := expirationMinutes * 60 // 转换为秒
+
+	// 记录日志
+	logger.Info("设置认证Cookie，有效期: %d分钟", expirationMinutes)
+
+	c.SetCookie(middleware.AuthCookieName, cookieValue, maxAge, "/", "", false, true)
+
+	// 响应请求
+	if isAjax {
+		c.JSON(http.StatusOK, gin.H{
+			"code":     200,
+			"message":  "登录成功",
+			"redirect": redirect,
+		})
+	} else {
+		c.Redirect(http.StatusFound, redirect)
+	}
+}
+
+// handleLogout 处理登出请求
+func handleLogout(c *gin.Context) {
+	// 判断是否是AJAX请求
+	isAjax := c.GetHeader("X-Requested-With") == "XMLHttpRequest" ||
+		c.GetHeader("Accept") == "application/json" ||
+		c.Query("format") == "json"
+
+	// 清除认证Cookie
+	c.SetCookie(middleware.AuthCookieName, "", -1, "/", "", false, true)
+
+	// 响应请求
+	if isAjax {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    200,
+			"message": "已成功登出",
+		})
+	} else {
+		// 重定向到登录页面
+		c.Redirect(http.StatusFound, "/login")
+	}
+}
+
+// handleAuthCheck 处理检查认证状态的请求
+func handleAuthCheck(c *gin.Context) {
+	// 获取当前配置
+	cfg := config.GetConfig()
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "服务器内部错误",
+		})
+		return
+	}
+
+	// 检查是否启用了密码保护
+	if !cfg.Security.PasswordEnabled {
+		// 未启用密码保护，直接返回已认证状态
+		c.JSON(http.StatusOK, gin.H{
+			"code":    200,
+			"message": "已认证",
+		})
+		return
+	}
+
+	// 验证认证状态
+	cookie, err := c.Cookie(middleware.AuthCookieName)
+	if err != nil || cookie == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    401,
+			"message": "未认证",
+		})
+		return
+	}
+
+	// 验证令牌
+	valid, err := auth.ParseCookie(cookie)
+	if err != nil || !valid {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    401,
+			"message": "认证已过期",
+		})
+		return
+	}
+
+	// 认证有效
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "已认证",
+	})
+}
+
+// getTopModelsHandler 获取调用次数最多的模型
+func getTopModelsHandler(c *gin.Context) {
+	// 默认最多返回3个
+	limit := 3
+
+	// 获取模型调用次数最多的模型
+	models, err := model.GetTopModels(limit)
+	if err != nil {
+		logger.Error("获取常用模型失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "获取常用模型失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 返回结果
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"models":  models,
 	})
 }

@@ -1,6 +1,11 @@
 //go:build !windows
 // +build !windows
 
+/**
+  @author: Hanhai
+  @desc: 非Windows平台的工具函数存根，提供兼容性支持
+**/
+
 package utils
 
 import (

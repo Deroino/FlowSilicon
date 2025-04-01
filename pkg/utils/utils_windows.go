@@ -1,6 +1,11 @@
 //go:build windows
 // +build windows
 
+/**
+  @author: Hanhai
+  @desc: Windows平台特定的工具函数，处理进程属性和窗口显示
+**/
+
 package utils
 
 import (

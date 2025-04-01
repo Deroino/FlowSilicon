@@ -2,22 +2,50 @@ version: '3.8'
 
 services:
   flowsilicon:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # 镜像配置（二选一）
+    image: ghcr.io/hanhai-space/flowsilicon:1.3.9  # 使用远程仓库镜像
+    # build: .  # 如果要本地构建则使用此选项
+    
     container_name: flowsilicon
-    restart: unless-stopped
+    restart: unless-stopped  # 自动重启策略
+    
+    # 端口映射（主机端口:容器端口）
     ports:
-      - "3016:3016"
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - "3016:3016"  
+    
+    # 环境变量
     environment:
-      - TZ=Asia/Shanghai
-      - FLOWSILICON_GUI=0
-    networks:
-      - flowsilicon-network
+      - TZ=Asia/Shanghai  # 时区设置
+      - FLOWSILICON_GUI=${FLOWSILICON_GUI:-0}  # 带默认值的环境变量
+    
+    # 数据卷映射
+    volumes:
+      - flowsilicon_data:/app/data  # 持久化数据
+      - flowsilicon_logs:/app/logs  # 持久化日志
+    
+    # 用户权限（必须与Dockerfile中的用户一致）
+    user: "flowsilicon"  # 或使用数字UID如 "1000:1000"
+    
+    # 健康检查（按需启用）
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3016"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    # 资源限制（按需调整）
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 100M
 
-networks:
-  flowsilicon-network:
-    driver: bridge 
+# 持久化卷声明
+volumes:
+  flowsilicon_data:
+  flowsilicon_logs:
+
+# 网络配置（按需启用）
+# networks:
+#   app-network:
+#     driver: bridge

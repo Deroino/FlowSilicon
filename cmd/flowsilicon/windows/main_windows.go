@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/23 22:30:10
-  @desc:
+  @desc: Windows平台主程序入口，包含系统托盘、自动启动和配置初始化功能
 **/
 
 package main
@@ -11,7 +10,7 @@ import (
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
 	"flowsilicon/internal/model"
-	"flowsilicon/web"
+	"flowsilicon/internal/web"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +29,7 @@ var (
 	// 全局变量，用于存储服务器端口
 	serverPort int
 	// 版本号
-	Version = "1.3.8"
+	Version = "1.3.9"
 	// 控制程序退出的通道
 	quitChan chan struct{} = make(chan struct{})
 	// 控制是否真正退出程序
@@ -173,7 +172,7 @@ func main() {
 
 		// 强制刷新所有API密钥的余额
 		if refreshErr := key.ForceRefreshAllKeysBalance(); refreshErr != nil {
-			logger.Error("强制刷新API密钥余额失败: %v", refreshErr)
+			logger.Error("刷新API密钥余额失败: %v", refreshErr)
 		} else {
 			logger.Info("已完成API密钥余额的强制刷新")
 		}
@@ -188,7 +187,7 @@ func main() {
 		// 设置日志文件最大大小
 		logMaxSize := cfg.Log.MaxSizeMB
 		if logMaxSize <= 0 {
-			logMaxSize = 10 // 默认10MB
+			logMaxSize = 1 // 默认10MB
 		}
 		logger.SetMaxLogSize(logMaxSize)
 
@@ -217,6 +216,8 @@ func main() {
 
 	// 创建Gin路由
 	router := gin.Default()
+	// 设置受信任的代理
+	router.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 
 	// 设置API代理
 	web.SetupApiProxy(router)
@@ -267,18 +268,31 @@ func main() {
 	key.StopKeyManager()
 	logger.Info("API密钥管理器已停止")
 
-	// 保存API密钥
-	if err := config.SaveApiKeys(); err != nil {
-		logger.Error("保存API密钥失败: %v", err)
-	} else {
-		logger.Info("API密钥已保存")
+	// 检查数据库连接状态
+	isDBClosed := false
+	if err := config.DB().Ping(); err != nil {
+		// 将警告日志改为信息日志，数据库关闭是预期的行为
+		logger.Info("主程序退出时数据库已关闭，这是正常的")
+		isDBClosed = true
 	}
 
-	// 关闭配置数据库连接
-	if err := config.CloseConfigDB(); err != nil {
-		logger.Error("关闭配置数据库连接失败: %v", err)
+	// 只有在数据库仍然开启时才保存API密钥和关闭数据库
+	if !isDBClosed {
+		// 保存API密钥
+		if err := config.SaveApiKeys(); err != nil {
+			logger.Error("保存API密钥失败: %v", err)
+		} else {
+			logger.Info("API密钥已保存")
+		}
+
+		// 关闭配置数据库连接
+		if err := config.CloseConfigDB(); err != nil {
+			logger.Error("关闭配置数据库连接失败: %v", err)
+		} else {
+			logger.Info("配置数据库已关闭")
+		}
 	} else {
-		logger.Info("配置数据库已关闭")
+		logger.Info("数据库已关闭，跳过主程序退出时保存API密钥和关闭数据库步骤")
 	}
 
 	// 关闭日志系统
@@ -354,16 +368,69 @@ func ensureDirectoriesExist() error {
 
 // 系统托盘初始化
 func onReady() {
-	// 设置托盘图标和标题
-	iconPath := getAbsolutePath("web/static/img/favicon_32.ico")
-	if _, err := os.Stat(iconPath); err == nil {
-		// 图标文件存在，读取图标
-		icon, err := os.ReadFile(iconPath)
-		if err == nil {
-			systray.SetIcon(icon)
+	var iconLoaded bool
+
+	// 尝试从嵌入式文件系统加载图标
+	icon32Path := "static/img/favicon_32.ico"
+	icon128Path := "static/img/favicon_128.ico"
+
+	// 首先尝试加载32x32图标
+	icon32Data, err := web.GetEmbeddedFile(icon32Path)
+	if err == nil && len(icon32Data) > 0 {
+		systray.SetIcon(icon32Data)
+		iconLoaded = true
+		logger.Info("成功从嵌入式文件系统加载32x32图标")
+	} else {
+		logger.Warn("从嵌入式文件系统加载32x32图标失败: %v", err)
+
+		// 尝试从物理文件系统加载（作为备用）
+		iconPath := getAbsolutePath("internal/web/static/img/favicon_32.ico")
+		if _, err := os.Stat(iconPath); err == nil {
+			// 图标文件存在，读取图标
+			iconData, err := os.ReadFile(iconPath)
+			if err == nil {
+				systray.SetIcon(iconData)
+				iconLoaded = true
+				logger.Info("成功从物理文件系统加载32x32图标: %s", iconPath)
+			} else {
+				logger.Error("读取32x32图标文件失败: %v", err)
+			}
 		} else {
-			logger.Error("读取图标文件失败: %v", err)
+			logger.Warn("找不到32x32图标文件: %s, 错误: %v", iconPath, err)
 		}
+	}
+
+	// 如果32x32图标加载失败，尝试加载128x128图标
+	if !iconLoaded {
+		// 尝试从嵌入式文件系统加载
+		icon128Data, err := web.GetEmbeddedFile(icon128Path)
+		if err == nil && len(icon128Data) > 0 {
+			systray.SetIcon(icon128Data)
+			iconLoaded = true
+			logger.Info("成功从嵌入式文件系统加载128x128图标")
+		} else {
+			logger.Warn("从嵌入式文件系统加载128x128图标失败: %v", err)
+
+			// 尝试从物理文件系统加载（作为备用）
+			iconPath := getAbsolutePath("internal/web/static/img/favicon_128.ico")
+			if _, err := os.Stat(iconPath); err == nil {
+				// 图标文件存在，读取图标
+				iconData, err := os.ReadFile(iconPath)
+				if err == nil {
+					systray.SetIcon(iconData)
+					iconLoaded = true
+					logger.Info("成功从物理文件系统加载128x128图标: %s", iconPath)
+				} else {
+					logger.Error("读取128x128图标文件失败: %v", err)
+				}
+			} else {
+				logger.Error("找不到128x128图标文件: %s, 错误: %v", iconPath, err)
+			}
+		}
+	}
+
+	if !iconLoaded {
+		logger.Error("无法加载任何系统托盘图标，托盘图标将显示为默认图标")
 	}
 
 	// 获取版本号
@@ -435,12 +502,40 @@ func onReady() {
 func onExit() {
 	// 如果是真正的退出请求，则退出程序
 	if realQuit {
-		// 保存API密钥
-		config.SaveApiKeys()
-		// 关闭数据库连接
-		config.CloseConfigDB()
-		// 关闭模型数据库
-		model.CloseModelDB()
+		// 检查数据库连接状态，避免重复关闭问题
+		isDBClosed := false
+		if err := config.DB().Ping(); err != nil {
+			// 将警告日志改为信息日志，数据库关闭是预期的行为
+			logger.Info("系统托盘退出时数据库已关闭，这是正常的")
+			isDBClosed = true
+		}
+
+		// 只有在数据库仍然开启时才保存API密钥
+		if !isDBClosed {
+			// 先保存API密钥 - 在关闭数据库之前执行
+			if err := config.SaveApiKeys(); err != nil {
+				logger.Error("退出程序时保存API密钥失败: %v", err)
+			} else {
+				logger.Info("API密钥已成功保存")
+			}
+
+			// 关闭数据库连接
+			if err := config.CloseConfigDB(); err != nil {
+				logger.Error("关闭配置数据库失败: %v", err)
+			} else {
+				logger.Info("配置数据库已成功关闭")
+			}
+
+			// 关闭模型数据库
+			if err := model.CloseModelDB(); err != nil {
+				logger.Error("关闭模型数据库失败: %v", err)
+			} else {
+				logger.Info("模型数据库已成功关闭")
+			}
+		} else {
+			logger.Info("数据库已关闭，跳过保存API密钥和关闭数据库步骤")
+		}
+
 		logger.Info("程序已退出")
 		// 关闭退出通道，通知主程序退出
 		close(quitChan)
@@ -510,13 +605,24 @@ func isAutoStartEnabled() bool {
 		return false
 	}
 
-	// 不需要获取可执行文件路径，只需要查询注册表项是否存在
 	// 使用reg query命令检查注册表项是否存在
 	cmd := exec.Command("reg", "query", "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "FlowSilicon")
-	err := cmd.Run()
 
-	// 如果命令执行成功，说明注册表项存在（已启用开机自启）
-	return err == nil
+	// 获取命令输出以便记录日志
+	output, err := cmd.CombinedOutput()
+
+	// 记录命令执行结果
+	if err != nil {
+		logger.Info("检查开机自启状态：未启用 (错误: %v)", err)
+		return false
+	}
+
+	// 检查输出中是否包含FlowSilicon的值
+	outputStr := string(output)
+	logger.Info("检查开机自启状态：已启用")
+	logger.Info("注册表查询结果: %s", outputStr)
+
+	return true
 }
 
 // enableAutoStart 启用开机自启
@@ -526,21 +632,34 @@ func enableAutoStart() {
 		return
 	}
 
-	// 获取当前可执行文件的路径
+	// 获取当前可执行文件的绝对路径
 	exePath, err := os.Executable()
 	if err != nil {
 		logger.Error("获取可执行文件路径失败: %v", err)
 		return
 	}
 
+	// 确保路径被引号括起来，避免包含空格的路径问题
+	quotedPath := fmt.Sprintf("\"%s\"", exePath)
+
 	// 使用reg add命令添加注册表项
-	cmd := exec.Command("reg", "add", "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "FlowSilicon", "/t", "REG_SZ", "/d", fmt.Sprintf("\"%s\"", exePath), "/f")
+	cmd := exec.Command("reg", "add", "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "FlowSilicon", "/t", "REG_SZ", "/d", quotedPath, "/f")
+
+	// 记录完整命令用于调试
+	logger.Info("执行注册表命令: %s", cmd.String())
+
 	if err := cmd.Run(); err != nil {
 		logger.Error("设置开机自启失败: %v", err)
 		return
 	}
 
-	logger.Info("已成功设置开机自启")
+	// 验证是否添加成功
+	verifyCmd := exec.Command("reg", "query", "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "FlowSilicon")
+	if err := verifyCmd.Run(); err == nil {
+		logger.Info("已成功设置开机自启并验证")
+	} else {
+		logger.Error("开机自启设置成功，但验证失败: %v", err)
+	}
 }
 
 // disableAutoStart 禁用开机自启
@@ -552,12 +671,24 @@ func disableAutoStart() {
 
 	// 使用reg delete命令删除注册表项
 	cmd := exec.Command("reg", "delete", "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "FlowSilicon", "/f")
-	if err := cmd.Run(); err != nil {
-		logger.Error("禁用开机自启失败: %v", err)
+
+	// 记录命令用于调试
+	logger.Info("执行注册表命令: %s", cmd.String())
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Error("禁用开机自启失败: %v, 输出: %s", err, string(output))
 		return
 	}
 
-	logger.Info("已成功禁用开机自启")
+	// 验证是否成功删除
+	verifyCmd := exec.Command("reg", "query", "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "FlowSilicon")
+	if verifyErr := verifyCmd.Run(); verifyErr != nil {
+		// 如果命令失败，说明注册表项已被成功删除
+		logger.Info("已成功禁用开机自启并验证")
+	} else {
+		logger.Error("开机自启禁用失败，注册表项仍然存在")
+	}
 }
 
 // restartProgram 重新启动程序，保留原始命令行参数
@@ -610,6 +741,27 @@ func restartProgram() {
 
 	// 设置退出标志并请求程序退出
 	logger.Info("当前程序将在重启成功后退出")
+
+	// 检查数据库连接状态
+	isDBClosed := false
+	if err := config.DB().Ping(); err != nil {
+		// 将警告日志改为信息日志，数据库关闭是预期的行为
+		logger.Info("重启程序时数据库已关闭，这是正常的")
+		isDBClosed = true
+	}
+
+	// 只有在数据库仍然开启时才保存API密钥
+	if !isDBClosed {
+		if err := config.SaveApiKeys(); err != nil {
+			logger.Error("重启前保存API密钥失败: %v", err)
+		} else {
+			logger.Info("重启前已成功保存API密钥")
+		}
+	} else {
+		logger.Info("数据库已关闭，跳过重启前保存API密钥步骤")
+	}
+
+	// 设置真正退出标志并请求退出
 	realQuit = true
 	systray.Quit()
 }

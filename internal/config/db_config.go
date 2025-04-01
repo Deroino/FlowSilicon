@@ -1,6 +1,5 @@
 /**
   @author: Hanhai
-  @since: 2025/3/23 14:30:16
   @desc:
 **/
 
@@ -14,6 +13,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -48,6 +49,18 @@ func InitConfigDB(dbPath string) error {
 	db, err = sql.Open("sqlite", dbPath)
 	if err != nil {
 		return err
+	}
+
+	// 设置连接池参数
+	db.SetMaxOpenConns(1)                   // 限制最大连接数为1，以减少并发问题
+	db.SetMaxIdleConns(1)                   // 最大空闲连接数
+	db.SetConnMaxLifetime(30 * time.Minute) // 连接最大生命周期
+
+	// 启用WAL模式和关闭同步模式，提高性能，降低锁定风险
+	_, err = db.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")
+	if err != nil {
+		logger.Warn("设置SQLite PRAGMA失败: %v", err)
+		// 继续执行，因为这不是致命错误
 	}
 
 	// 测试数据库连接
@@ -119,7 +132,7 @@ func LoadConfigFromDB() (*Config, error) {
 		// 	logger.Info("数据库中没有配置数据，尝试插入默认配置")
 
 		// 	// 使用默认版本号
-		// 	version := "v1.3.8"
+		// 	version := "v1.3.9"
 
 		// 	// 确保版本已保存
 		// 	_, vErr := db.Exec("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", "version", version)
@@ -293,4 +306,41 @@ func SaveVersion(version string) error {
 // DB 返回数据库实例
 func DB() *sql.DB {
 	return db
+}
+
+// ExecWithRetry 执行SQL语句并在遇到数据库锁定错误时进行重试
+// operation: 操作名称，用于日志
+// maxRetries: 最大重试次数
+// stmt: SQL语句
+// args: SQL参数
+func ExecWithRetry(operation string, maxRetries int, stmt string, args ...interface{}) (sql.Result, error) {
+	if db == nil {
+		return nil, errors.New("数据库连接未初始化")
+	}
+
+	var result sql.Result
+	var err error
+
+	for retries := 0; retries < maxRetries; retries++ {
+		result, err = db.Exec(stmt, args...)
+		if err == nil {
+			return result, nil // 执行成功
+		}
+
+		// 检查是否是数据库锁定错误
+		if strings.Contains(err.Error(), "database is locked") ||
+			strings.Contains(err.Error(), "SQLITE_BUSY") {
+			// 计算递增的等待时间
+			waitTime := time.Duration(100*(retries+1)) * time.Millisecond
+			logger.Warn("%s遇到数据库锁定，等待%v后重试 (尝试 %d/%d): %v",
+				operation, waitTime, retries+1, maxRetries, err)
+			time.Sleep(waitTime)
+			continue
+		}
+
+		// 对于其他类型的错误，直接返回
+		break
+	}
+
+	return result, err
 }

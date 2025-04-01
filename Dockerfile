@@ -1,57 +1,40 @@
-# 使用官方Golang镜像作为构建环境
-FROM golang:1.23.7-alpine AS builder
+# 使用多平台 Golang 镜像作为构建环境
+FROM --platform=$BUILDPLATFORM golang:1.23.7-bookworm AS builder
 
-# 设置工作目录
 WORKDIR /app
-
-# 复制go mod和sum文件
 COPY go.mod go.sum ./
-
-# 下载依赖
 RUN go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
 RUN go mod download
-
-# 复制源代码
 COPY . .
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
+    go build -ldflags "-s -w" -o flowsilicon ./cmd/flowsilicon/linux/main_linux.go
 
-# 构建应用
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o flowsilicon ./cmd/flowsilicon/linux/main_linux.go
-
-
-# 使用轻量级的alpine镜像作为运行环境
-FROM alpine:latest
-
-# 安装必要的系统包
-RUN apk --no-cache add ca-certificates tzdata
-
-# 设置时区
-ENV TZ=Asia/Shanghai
-
-# 创建非root用户
-RUN adduser -D -g '' flowsilicon
-
-# 创建必要的目录
-RUN mkdir -p /app/data /app/logs /app/web/static /app/web/templates
-
-# 从builder阶段复制编译好的应用
-COPY --from=builder /app/flowsilicon /app/
-COPY --from=builder /app/web/static /app/web/static
-COPY --from=builder /app/web/templates /app/web/templates
-
-# 设置目录权限
-RUN chown -R flowsilicon:flowsilicon /app
-
-# 切换到非root用户
-USER flowsilicon
-
-# 设置工作目录
-WORKDIR /app
-
-# 暴露端口
-EXPOSE 3016
+# 使用 Debian 稳定版作为运行时
+FROM debian:stable-slim
 
 # 设置环境变量
-ENV FLOWSILICON_GUI=0
+ENV TZ=Asia/Shanghai \
+    DEBIAN_FRONTEND=noninteractive
 
-# 启动应用
-CMD ["./flowsilicon"] 
+# 安装基础依赖（带重试机制）
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    tzdata && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone
+
+# 创建应用用户和目录
+RUN useradd -u 1000 -U -d /app -s /bin/false flowsilicon && \
+    mkdir -p /app/data /app/logs
+
+COPY --from=builder --chown=flowsilicon /app/flowsilicon /app/
+RUN chown -R flowsilicon:flowsilicon /app
+
+USER flowsilicon
+WORKDIR /app
+EXPOSE 3016
+ENV FLOWSILICON_GUI=0
+CMD ["./flowsilicon"]

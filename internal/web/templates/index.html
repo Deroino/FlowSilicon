@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/static-fs/css/style.css">
     <link rel="stylesheet" href="/static-fs/css/footer.css">
     <script src="/static-fs/js/bootstrap.bundle.min.js" data-sourcemap="false"></script>
+    <script src="/static-fs/js/login.js"></script>
     <!-- 定义全局变量 -->
     <script>
         // 全局变量
@@ -19,6 +20,7 @@
         const AUTO_UPDATE_INTERVAL = {{ .auto_update_interval }}; // 自动更新间隔（秒）
         const STATS_REFRESH_INTERVAL = {{ .stats_refresh_interval }} ; // 统计信息刷新间隔（秒）
         const RATE_REFRESH_INTERVAL = {{ .rate_refresh_interval }} ; // 速率监控刷新间隔（秒）
+        const MIN_BALANCE_THRESHOLD = {{ .min_balance_threshold }}; // 最低余额阈值
     </script>
     <script src="/static-fs/js/script.js"></script>
 </head>
@@ -41,7 +43,7 @@
 
         <div class="row">
             <div class="col-md-4">
-                <div class="card stats-card">
+                <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5>系统概要</h5>
                         <span class="small text-muted" id="stats-last-update">自动刷新中...</span>
@@ -80,7 +82,17 @@
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card mt-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5>常用模型</h5>
+                        <span class="small text-muted" id="top-models-last-update">加载中...</span>
+                    </div>
+                    <div class="card-body" id="top-models-container">
+                        <p>加载中...</p>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
                     <div class="card-header">
                         <h5>API 密钥管理</h5>
                     </div>
@@ -198,14 +210,14 @@
                         <!-- 添加当前使用的API密钥信息 -->
                         <div id="current-key-info" class="current-key-info">
                             <h6>当前使用的API密钥: </h6>
-                            <div id="current-key-content">加载中...</div>
+                            <div id="current-key-content">等待API密钥...</div>
                         </div>
 
                         <!-- 添加API地址显示和复制按钮 -->
                     <div class="api-endpoints">
                             <h6 style="display: flex; justify-content: space-between; align-items: center;">
                                 API 接口地址
-                                <button id="test-all-endpoints" class="btn btn-sm btn-primary">一键检测</button>
+                                <button id="test-all-endpoints" class="btn btn-sm btn-primary">一键测试</button>
                             </h6>
 
                             <!-- 对话相关API -->
@@ -413,6 +425,22 @@
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- 进度条覆盖层 -->
+    <div class="progress-overlay" id="progress-overlay" style="display: none;">
+        <div class="progress-container">
+            <div class="progress-title" id="progress-title">处理中...</div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="progress-info">
+                <span id="progress-current">0</span>
+                <span class="progress-percentage" id="progress-percentage">0%</span>
+                <span id="progress-total">0</span>
+            </div>
+            <div class="progress-status" id="progress-status">初始化中...</div>
         </div>
     </div>
 

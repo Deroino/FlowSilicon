@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 20:44:00
-  @desc:
+  @desc: 配置管理模块，包含系统配置定义和API密钥管理功能
 **/
 
 package config
@@ -9,7 +8,6 @@ package config
 import (
 	"flowsilicon/internal/logger"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +46,14 @@ type Config struct {
 		ProxyType  string `mapstructure:"proxy_type"`  // 代理类型：http, https, socks5
 		Enabled    bool   `mapstructure:"enabled"`     // 是否启用代理
 	} `mapstructure:"proxy"`
+	// 添加Security字段，用于存储密码保护相关配置
+	Security struct {
+		PasswordEnabled   bool   `mapstructure:"password_enabled"`   // 是否启用密码保护
+		Password          string `mapstructure:"password"`           // 访问密码
+		ExpirationMinutes int    `mapstructure:"expiration_minutes"` // 登录过期时间（分钟），0表示关闭浏览器即过期
+		ApiKeyEnabled     bool   `mapstructure:"api_key_enabled"`    // 是否启用API密钥验证
+		ApiKey            string `mapstructure:"api_key"`            // API密钥
+	} `mapstructure:"security"`
 	App struct {
 		Title                  string  `mapstructure:"title"`                    // 应用标题
 		MinBalanceThreshold    float64 `mapstructure:"min_balance_threshold"`    // 最低余额阈值
@@ -110,6 +116,14 @@ type RequestStats struct {
 	Timestamp    int64 `json:"timestamp"`     // 时间戳
 	RequestCount int   `json:"request_count"` // 请求数
 	TokenCount   int   `json:"token_count"`   // 令牌数
+}
+
+// RetryConfig 重试配置
+type RetryConfig struct {
+	MaxRetries           int   `yaml:"max_retries" mapstructure:"max_retries"`                         // 最大重试次数
+	RetryDelayMs         int   `yaml:"retry_delay_ms" mapstructure:"retry_delay_ms"`                   // 重试间隔（毫秒）
+	RetryOnStatusCodes   []int `yaml:"retry_on_status_codes" mapstructure:"retry_on_status_codes"`     // 需要重试的HTTP状态码
+	RetryOnNetworkErrors bool  `yaml:"retry_on_network_errors" mapstructure:"retry_on_network_errors"` // 是否对网络错误进行重试
 }
 
 // standardizeModelKeyStrategies 统一模型名称的大小写处理
@@ -182,14 +196,11 @@ func AddApiKey(key string, balance float64) {
 			// 如果密钥被标记为删除，恢复它
 			if apiKeys[i].Delete {
 				apiKeys[i].Delete = false
-				log.Printf("恢复之前逻辑删除的API密钥: %s", MaskKey(key))
 			}
 			// 检查余额并设置禁用状态
 			if balance < config.App.MinBalanceThreshold {
 				apiKeys[i].Disabled = true
 				apiKeys[i].DisabledAt = time.Now().Unix()
-				log.Printf("API密钥 %s 余额 %.2f 低于阈值 %.2f，已自动禁用",
-					MaskKey(key), balance, config.App.MinBalanceThreshold)
 			} else {
 				apiKeys[i].Disabled = false
 				apiKeys[i].DisabledAt = 0
@@ -215,8 +226,6 @@ func AddApiKey(key string, balance float64) {
 			_, err := db.Exec(`UPDATE `+apikeysTableName+` SET is_delete = ?, balance = ? WHERE key = ?`,
 				false, balance, key)
 			if err == nil {
-				log.Printf("从数据库恢复之前逻辑删除的API密钥: %s", MaskKey(key))
-
 				// 重新加载密钥
 				if loadErr := LoadApiKeysFromDB(); loadErr != nil {
 					logger.Error("恢复密钥后重新加载密钥失败: %v", loadErr)
@@ -238,8 +247,6 @@ func AddApiKey(key string, balance float64) {
 	if balance < config.App.MinBalanceThreshold {
 		newKey.Disabled = true
 		newKey.DisabledAt = time.Now().Unix()
-		log.Printf("新增API密钥 %s 余额 %.2f 低于阈值 %.2f，已自动禁用",
-			MaskKey(key), balance, config.App.MinBalanceThreshold)
 	}
 
 	apiKeys = append(apiKeys, newKey)
@@ -250,39 +257,60 @@ func AddApiKey(key string, balance float64) {
 	}
 }
 
-// UpdateApiKeyBalance 更新 API 密钥余额
+// UpdateApiKeyBalance 更新API密钥余额
 func UpdateApiKeyBalance(key string, balance float64) bool {
 	keysMutex.Lock()
 	defer keysMutex.Unlock()
 
+	found := false
+	var keyIndex int
+
+	// 先找到密钥并更新内存中的数据
 	for i, k := range apiKeys {
 		if k.Key == key {
-			// 更新余额
 			apiKeys[i].Balance = balance
-
-			// 如果余额低于余额阈值且密钥未禁用，则禁用密钥
-			if balance < config.App.MinBalanceThreshold && !k.Disabled {
-				apiKeys[i].Disabled = true
-				apiKeys[i].DisabledAt = time.Now().Unix()
-				log.Printf("API密钥 %s 余额低于阈值 %.2f，已自动禁用", MaskKey(key), config.App.MinBalanceThreshold)
-			} else if balance >= config.App.MinBalanceThreshold && k.Disabled && k.DisabledAt == 0 {
-				// 如果余额充足且密钥是禁用的（但不是手动禁用的），则启用密钥
-				apiKeys[i].Disabled = false
-				log.Printf("API密钥 %s 余额已恢复到阈值 %.2f 以上，已自动启用", MaskKey(key), config.App.MinBalanceThreshold)
-			}
-
-			// 保存更新到数据库
-			keyCopy := apiKeys[i]
-			keyCopy.RecentRequests = nil // 清空不需要保存的字段
-			if err := AddApiKeyToDB(keyCopy); err != nil {
-				logger.Error("更新API密钥余额到数据库失败: %v", err)
-			}
-
-			return true
+			found = true
+			keyIndex = i
+			break
 		}
 	}
 
-	return false
+	if !found {
+		return false
+	}
+
+	// 余额低于阈值时禁用密钥
+	if balance < config.App.MinBalanceThreshold {
+		apiKeys[keyIndex].Disabled = true
+		apiKeys[keyIndex].DisabledAt = time.Now().Unix()
+		logger.Info("API密钥 %s 余额 %.2f 低于阈值 %.2f，已自动禁用",
+			MaskKey(key), balance, config.App.MinBalanceThreshold)
+	}
+
+	// 保存更新到数据库
+	if db != nil {
+		result, err := ExecWithRetry(
+			"更新API密钥余额",
+			3,
+			"UPDATE "+apikeysTableName+" SET balance = ?, disabled = ?, disabled_at = ? WHERE key = ?",
+			balance,
+			apiKeys[keyIndex].Disabled,
+			apiKeys[keyIndex].DisabledAt,
+			key,
+		)
+
+		if err != nil {
+			logger.Error("更新API密钥余额到数据库失败: %v", err)
+		} else {
+			// 检查是否有行被更新
+			rowsAffected, _ := result.RowsAffected()
+			if rowsAffected == 0 {
+				logger.Warn("更新API密钥余额影响了0行: %s", MaskKey(key))
+			}
+		}
+	}
+
+	return true
 }
 
 // UpdateApiKeyLastUsed 更新 API 密钥最后使用时间
@@ -296,8 +324,27 @@ func UpdateApiKeyLastUsed(key string, timestamp int64) bool {
 
 			// 保存更新到数据库
 			if db != nil {
-				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
-					SET last_used = ? WHERE key = ?`, timestamp, key)
+				// 添加重试逻辑，最多尝试3次
+				var err error
+				for retries := 0; retries < 3; retries++ {
+					_, err = db.Exec(`UPDATE `+apikeysTableName+` 
+						SET last_used = ? WHERE key = ?`, timestamp, key)
+					if err == nil {
+						break // 成功执行SQL，跳出循环
+					}
+
+					// 如果是数据库锁定错误，等待一段时间后重试
+					if strings.Contains(err.Error(), "database is locked") ||
+						strings.Contains(err.Error(), "SQLITE_BUSY") {
+						logger.Warn("更新API密钥最后使用时间遇到数据库锁定，等待重试 (尝试 %d/3): %v", retries+1, err)
+						time.Sleep(time.Duration(100*(retries+1)) * time.Millisecond)
+						continue
+					}
+
+					// 其他类型的错误直接中断
+					break
+				}
+
 				if err != nil {
 					logger.Error("更新API密钥最后使用时间到数据库失败: %v", err)
 				}
@@ -321,8 +368,27 @@ func MarkApiKeyAsUsed(key string) bool {
 
 			// 保存更新到数据库
 			if db != nil {
-				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
-					SET is_used = ? WHERE key = ?`, true, key)
+				// 添加重试逻辑，最多尝试3次
+				var err error
+				for retries := 0; retries < 3; retries++ {
+					_, err = db.Exec(`UPDATE `+apikeysTableName+` 
+						SET is_used = ? WHERE key = ?`, true, key)
+					if err == nil {
+						break // 成功执行SQL，跳出循环
+					}
+
+					// 如果是数据库锁定错误，等待一段时间后重试
+					if strings.Contains(err.Error(), "database is locked") ||
+						strings.Contains(err.Error(), "SQLITE_BUSY") {
+						logger.Warn("更新API密钥使用状态遇到数据库锁定，等待重试 (尝试 %d/3): %v", retries+1, err)
+						time.Sleep(time.Duration(100*(retries+1)) * time.Millisecond)
+						continue
+					}
+
+					// 其他类型的错误直接中断
+					break
+				}
+
 				if err != nil {
 					logger.Error("更新API密钥使用状态到数据库失败: %v", err)
 				}
@@ -470,12 +536,6 @@ func calculateScore(key ApiKey) float64 {
 	// 计算综合得分
 	totalScore := balanceScore + successRateScore + rpmScore + tpmScore
 
-	//TODO 注释日志
-	//记录日志，便于调试
-	// log.Printf("API密钥 %s 余额=%.2f(%.2f), 成功率=%.2f(%.2f), RPM=%d(%.2f), TPM=%d(%.2f), 总分=%.2f",
-	// 	key.Key[:6]+"******", key.Balance, balanceScore, key.SuccessRate, successRateScore,
-	// 	key.RequestsPerMinute, rpmScore, key.TokensPerMinute, tpmScore, totalScore)
-
 	return totalScore
 }
 
@@ -493,10 +553,29 @@ func UpdateApiKeySuccess(key string) bool {
 
 			// 保存更新到数据库
 			if db != nil {
-				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
-					SET total_calls = ?, success_calls = ?, success_rate = ?, consecutive_failures = ? 
-					WHERE key = ?`,
-					apiKeys[i].TotalCalls, apiKeys[i].SuccessCalls, apiKeys[i].SuccessRate, 0, key)
+				// 添加重试逻辑，最多尝试3次
+				var err error
+				for retries := 0; retries < 3; retries++ {
+					_, err = db.Exec(`UPDATE `+apikeysTableName+` 
+						SET total_calls = ?, success_calls = ?, success_rate = ?, consecutive_failures = ? 
+						WHERE key = ?`,
+						apiKeys[i].TotalCalls, apiKeys[i].SuccessCalls, apiKeys[i].SuccessRate, 0, key)
+					if err == nil {
+						break // 成功执行SQL，跳出循环
+					}
+
+					// 如果是数据库锁定错误，等待一段时间后重试
+					if strings.Contains(err.Error(), "database is locked") ||
+						strings.Contains(err.Error(), "SQLITE_BUSY") {
+						logger.Warn("更新API密钥成功调用统计遇到数据库锁定，等待重试 (尝试 %d/3): %v", retries+1, err)
+						time.Sleep(time.Duration(100*(retries+1)) * time.Millisecond)
+						continue
+					}
+
+					// 其他类型的错误直接中断
+					break
+				}
+
 				if err != nil {
 					logger.Error("更新API密钥成功调用统计到数据库失败: %v", err)
 				}
@@ -522,10 +601,29 @@ func UpdateApiKeyFailure(key string) bool {
 
 			// 保存更新到数据库
 			if db != nil {
-				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
-					SET total_calls = ?, success_rate = ?, consecutive_failures = ? 
-					WHERE key = ?`,
-					apiKeys[i].TotalCalls, apiKeys[i].SuccessRate, apiKeys[i].ConsecutiveFailures, key)
+				// 添加重试逻辑，最多尝试3次
+				var err error
+				for retries := 0; retries < 3; retries++ {
+					_, err = db.Exec(`UPDATE `+apikeysTableName+` 
+						SET total_calls = ?, success_rate = ?, consecutive_failures = ? 
+						WHERE key = ?`,
+						apiKeys[i].TotalCalls, apiKeys[i].SuccessRate, apiKeys[i].ConsecutiveFailures, key)
+					if err == nil {
+						break // 成功执行SQL，跳出循环
+					}
+
+					// 如果是数据库锁定错误，等待一段时间后重试
+					if strings.Contains(err.Error(), "database is locked") ||
+						strings.Contains(err.Error(), "SQLITE_BUSY") {
+						logger.Warn("更新API密钥失败调用统计遇到数据库锁定，等待重试 (尝试 %d/3): %v", retries+1, err)
+						time.Sleep(time.Duration(100*(retries+1)) * time.Millisecond)
+						continue
+					}
+
+					// 其他类型的错误直接中断
+					break
+				}
+
 				if err != nil {
 					logger.Error("更新API密钥失败调用统计到数据库失败: %v", err)
 				}
@@ -1112,7 +1210,6 @@ func MarkApiKeyForDeletion(key string) bool {
 	for i, k := range apiKeys {
 		if k.Key == key {
 			apiKeys[i].Delete = true
-			log.Printf("API密钥 %s 已标记为删除", MaskKey(key))
 
 			// 更新数据库中的删除标记
 			keyCopy := apiKeys[i]
@@ -1139,7 +1236,6 @@ func RemoveMarkedApiKeys() int {
 	// 将标记为删除的密钥设置为logically deleted
 	for i, k := range apiKeys {
 		if k.Delete {
-			log.Printf("逻辑删除已标记的API密钥: %s", MaskKey(k.Key))
 
 			// 确保Delete标记为true
 			apiKeys[i].Delete = true
@@ -1186,7 +1282,7 @@ func EnsureDefaultConfig(dbPath string) error {
 		logger.Info("数据库中没有找到配置或发生错误: %v，将插入默认配置", err)
 
 		// 使用默认版本号
-		version := "v1.3.8" // 默认版本号
+		version := "v1.3.9" // 默认版本号
 
 		// 确保版本已保存
 		_, err = db.Exec("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", "version", version)
@@ -1221,6 +1317,13 @@ func EnsureDefaultConfig(dbPath string) error {
 				"SocksProxy":"127.0.0.1:10808",
 				"ProxyType":"socks5",
 				"Enabled":false
+			},
+			"Security":{
+				"PasswordEnabled":false,
+				"Password":"",
+				"ExpirationMinutes":1,
+				"ApiKeyEnabled":false,
+				"ApiKey":""
 			},
 			"App":{
 				"Title":"流动硅基 FlowSilicon %s",
@@ -1297,8 +1400,27 @@ func MarkApiKeyAsUnused(key string) bool {
 
 			// 保存更新到数据库
 			if db != nil {
-				_, err := db.Exec(`UPDATE `+apikeysTableName+` 
-					SET is_used = ? WHERE key = ?`, false, key)
+				// 添加重试逻辑，最多尝试3次
+				var err error
+				for retries := 0; retries < 3; retries++ {
+					_, err = db.Exec(`UPDATE `+apikeysTableName+` 
+						SET is_used = ? WHERE key = ?`, false, key)
+					if err == nil {
+						break // 成功执行SQL，跳出循环
+					}
+
+					// 如果是数据库锁定错误，等待一段时间后重试
+					if strings.Contains(err.Error(), "database is locked") ||
+						strings.Contains(err.Error(), "SQLITE_BUSY") {
+						logger.Warn("更新API密钥未使用状态遇到数据库锁定，等待重试 (尝试 %d/3): %v", retries+1, err)
+						time.Sleep(time.Duration(100*(retries+1)) * time.Millisecond)
+						continue
+					}
+
+					// 其他类型的错误直接中断
+					break
+				}
+
 				if err != nil {
 					logger.Error("更新API密钥未使用状态到数据库失败: %v", err)
 				}

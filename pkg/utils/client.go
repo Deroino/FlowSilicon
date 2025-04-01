@@ -1,6 +1,5 @@
 /**
   @author: Hanhai
-  @since: 2025/3/18 23:50:00
   @desc: HTTP代理
 **/
 
@@ -9,6 +8,7 @@ package utils
 import (
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/logger"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -86,4 +86,103 @@ func CreateClientWithTimeout(timeout time.Duration) *http.Client {
 		Timeout:   timeout,
 		Transport: transport,
 	}
+}
+
+// SetCommonHeaders 设置HTTP请求的通用头部
+// 包括Authorization、Content-Type和Accept-Encoding
+func SetCommonHeaders(req *http.Request, token string) {
+	// 设置授权头
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	// 设置内容类型
+	req.Header.Set("Content-Type", "application/json")
+	// 设置Accept-Encoding为identity，解决Cloudflare转发时的乱码问题
+	req.Header.Set("Accept-Encoding", "identity")
+}
+
+// SetInferenceModelHeaders 设置推理模型HTTP请求的特殊头部
+// 适用于类型为7的推理模型，包括DeepseekR1等需要特殊处理的模型
+func SetInferenceModelHeaders(req *http.Request) {
+	// 禁用Nginx缓冲
+	req.Header.Set("X-Accel-Buffering", "no")
+	// 设置缓存控制
+	req.Header.Set("Cache-Control", "no-cache, no-transform")
+	// 保持连接
+	req.Header.Set("Connection", "keep-alive")
+	// 分块传输编码
+	req.Header.Set("Transfer-Encoding", "chunked")
+	// 设置较长的Keep-Alive超时
+	req.Header.Set("Keep-Alive", "timeout=600")
+	// 设置高优先级（可能被某些服务忽略，但不影响）
+	req.Header.Set("X-Inference-Priority", "high")
+}
+
+// CreateInferenceModelClient 创建适用于推理模型的HTTP客户端
+// 使用更长的超时时间和更优化的连接设置
+func CreateInferenceModelClient(requestTimeout time.Duration) *http.Client {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second, // 连接超时
+			KeepAlive: 60 * time.Second, // 保持连接活跃
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:           100,              // 最大空闲连接数
+		IdleConnTimeout:        90 * time.Second, // 空闲连接超时
+		TLSHandshakeTimeout:    20 * time.Second, // TLS握手超时
+		ExpectContinueTimeout:  5 * time.Second,  // 100-continue状态码的等待时间
+		ResponseHeaderTimeout:  60 * time.Second, // 响应头超时
+		MaxResponseHeaderBytes: 32 * 1024,        // 最大响应头大小
+	}
+
+	return &http.Client{
+		Transport: transport,
+		// 客户端总超时设置的略大于上下文超时，让上下文控制主要超时行为
+		Timeout: requestTimeout + 30*time.Second,
+	}
+}
+
+// CreateStandardModelClient 创建适用于普通模型的HTTP客户端
+// 使用标准的超时时间和连接设置
+func CreateStandardModelClient(requestTimeout time.Duration) *http.Client {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 20 * time.Second,
+	}
+
+	return &http.Client{
+		Transport: transport,
+		// 客户端总超时设置的略大于上下文超时，让上下文控制主要超时行为
+		Timeout: requestTimeout + 10*time.Second,
+	}
+}
+
+// SetStreamResponseHeaders 设置HTTP响应的流式响应头
+// 用于SSE (Server-Sent Events) 流式输出
+func SetStreamResponseHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
+}
+
+// SetInferenceStreamResponseHeaders 设置推理模型HTTP响应的特殊流式响应头
+// 为推理模型添加一些额外的响应头以改善性能
+func SetInferenceStreamResponseHeaders(w http.ResponseWriter) {
+	// 设置基本的流式响应头
+	SetStreamResponseHeaders(w)
+	// 添加推理模型特有的头部
+	w.Header().Set("X-Accel-Buffering", "no") // 禁用nginx缓冲
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	// 长连接设置
+	w.Header().Set("Keep-Alive", "timeout=600")
 }

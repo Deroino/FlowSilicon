@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 20:44:00
-  @desc:
+  @desc: 通用工具函数集，提供字符计数、密钥掩码和Map操作等功能
 **/
 
 package utils
@@ -19,6 +18,24 @@ func EstimateTokenCount(requestBody, responseBody []byte) int {
 		if usage, ok := respData["usage"].(map[string]interface{}); ok {
 			if totalTokens, ok := usage["total_tokens"].(float64); ok {
 				return int(totalTokens)
+			}
+
+			// 尝试从 prompt_tokens 和 completion_tokens 计算 total_tokens
+			var promptTokens, completionTokens float64
+			var hasPrompt, hasCompletion bool
+
+			if pt, ok := usage["prompt_tokens"].(float64); ok {
+				promptTokens = pt
+				hasPrompt = true
+			}
+
+			if ct, ok := usage["completion_tokens"].(float64); ok {
+				completionTokens = ct
+				hasCompletion = true
+			}
+
+			if hasPrompt && hasCompletion {
+				return int(promptTokens + completionTokens)
 			}
 		}
 	}

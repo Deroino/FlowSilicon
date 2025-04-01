@@ -67,12 +67,10 @@
                                     <div class="col-md-4 mb-3">
                                         <label for="server-port" class="form-label">服务器端口</label>
                                         <input type="number" class="form-control" id="server-port" name="server.port">
-                                        <div class="form-text">Web服务器监听的端口号</div>
                                     </div>
                                     <div class="col-md-4 mb-3">
                                         <label for="log-max-size" class="form-label">日志文件最大大小(MB)</label>
                                         <input type="number" class="form-control" id="log-max-size" name="log.max_size_mb">
-                                        <div class="form-text">日志文件达到此大小时将被清理</div>
                                     </div>
                                     <div class="col-md-4 mb-3">
                                         <label for="log-level" class="form-label">日志等级</label>
@@ -83,7 +81,57 @@
                                             <option value="error">Error (错误)</option>
                                             <option value="fatal">Fatal (致命)</option>
                                         </select>
-                                        <div class="form-text">控制记录哪些等级的日志信息</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 密码保护设置 -->
+                            <div class="settings-section">
+                                <h5><i class="bi bi-shield-lock"></i> 安全设置</h5>
+                                <div class="row">
+                                    <div class="col-md-12 mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="password-enabled" name="security.password_enabled">
+                                            <label class="form-check-label" for="password-enabled">
+                                                启用密码保护
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="password" class="form-label">访问密码</label>
+                                        <input type="password" class="form-control" id="password" name="security.password">
+                                        <div class="form-text">留空则使用当前密码</div>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="expiration-minutes" class="form-label">登录有效期（分钟）</label>
+                                        <input type="number" class="form-control" id="expiration-minutes" name="security.expiration_minutes" value="1">
+                                    </div>
+                                </div>
+                                
+                                <!-- API密钥设置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-key"></i> API密钥设置</h6>
+                                    <div class="row">
+                                        <div class="col-md-12 mb-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="api-key-enabled" name="security.api_key_enabled">
+                                                <label class="form-check-label" for="api-key-enabled">
+                                                    启用API密钥验证
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-12 mb-3">
+                                            <label for="api-key" class="form-label">API密钥</label>
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="api-key" name="security.api_key" placeholder="例如: sk-xxxxxxxxxxxxxxxxxxxxxxxx">
+                                                <button class="btn btn-secondary" type="button" id="generate-api-key">
+                                                    <i class="bi bi-magic"></i> 帮我生成并复制
+                                                </button>
+                                                <button class="btn btn-outline-secondary" type="button" id="copy-api-key" title="复制API密钥">
+                                                    <i class="bi bi-clipboard"></i>
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -102,6 +150,7 @@
                                     <div class="col-md-3 mb-3">
                                         <label for="min-balance" class="form-label">最低余额阈值</label>
                                         <input type="number" class="form-control" id="min-balance" name="app.min_balance_threshold" step="0.1">
+                                        <div class="form-text">低于此值的密钥将被强制禁用(不可启用)</div>
                                     </div>
                                     <div class="col-md-3 mb-3">
                                         <label for="max-balance" class="form-label">余额显示最大值</label>
@@ -197,7 +246,6 @@
                                     <div class="col-md-12 mb-3">
                                         <label for="api-base-url" class="form-label">API基础URL</label>
                                         <input type="text" class="form-control" id="api-base-url" name="api_proxy.base_url">
-                                        <div class="form-text">API请求的基础URL</div>
                                     </div>
                                 </div>
 
@@ -298,7 +346,7 @@
 
                             <!-- 代理设置 -->
                             <div class="settings-section">
-                                <h5><i class="bi bi-shield-lock"></i> 网络代理设置</h5>
+                                <h5><i class="bi bi-globe"></i> 网络代理设置</h5>
                                 <div class="row">
                                     <div class="col-md-12 mb-3">
                                         <div class="form-check">
@@ -330,7 +378,6 @@
                                     </div>
                                 </div>
                             </div>
-
                         </form>
                     </div>
                 </div>

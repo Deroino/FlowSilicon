@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/25 20:23:12
-  @desc:
+  @desc: macOS平台主程序入口，包含系统托盘和配置初始化功能
 **/
 
 package main
@@ -11,7 +10,7 @@ import (
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
 	"flowsilicon/internal/model"
-	"flowsilicon/web"
+	"flowsilicon/internal/web"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,7 +28,7 @@ var (
 	// 全局变量，用于存储服务器端口
 	serverPort int
 	// 版本号
-	Version = "1.3.8"
+	Version = "1.3.9"
 	// 控制程序退出的通道
 	quitChan chan struct{} = make(chan struct{})
 	// 控制是否真正退出程序
@@ -166,7 +165,7 @@ func main() {
 
 		// 强制刷新所有API密钥的余额
 		if refreshErr := key.ForceRefreshAllKeysBalance(); refreshErr != nil {
-			logger.Error("强制刷新API密钥余额失败: %v", refreshErr)
+			logger.Error("刷新API密钥余额失败: %v", refreshErr)
 		} else {
 			logger.Info("已完成API密钥余额的强制刷新")
 		}
@@ -181,7 +180,7 @@ func main() {
 		// 设置日志文件最大大小
 		logMaxSize := cfg.Log.MaxSizeMB
 		if logMaxSize <= 0 {
-			logMaxSize = 10 // 默认10MB
+			logMaxSize = 1 // 默认10MB
 		}
 		logger.SetMaxLogSize(logMaxSize)
 
@@ -210,6 +209,8 @@ func main() {
 
 	// 创建Gin路由
 	router := gin.Default()
+	// 设置受信任的代理
+	router.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 
 	// 设置API代理
 	web.SetupApiProxy(router)
@@ -346,16 +347,69 @@ func ensureDirectoriesExist() error {
 
 // 系统托盘初始化
 func onReady() {
-	// 设置托盘图标和标题
-	iconPath := getAbsolutePath("web/static/img/favicon_32.ico")
-	if _, err := os.Stat(iconPath); err == nil {
-		// 图标文件存在，读取图标
-		icon, err := os.ReadFile(iconPath)
-		if err == nil {
-			systray.SetIcon(icon)
+	var iconLoaded bool
+
+	// 尝试从嵌入式文件系统加载图标
+	icon32Path := "static/img/favicon_32.ico"
+	icon128Path := "static/img/favicon_128.ico"
+
+	// 首先尝试加载32x32图标
+	icon32Data, err := web.GetEmbeddedFile(icon32Path)
+	if err == nil && len(icon32Data) > 0 {
+		systray.SetIcon(icon32Data)
+		iconLoaded = true
+		logger.Info("成功从嵌入式文件系统加载32x32图标")
+	} else {
+		logger.Warn("从嵌入式文件系统加载32x32图标失败: %v", err)
+
+		// 尝试从物理文件系统加载（作为备用）
+		iconPath := getAbsolutePath("internal/web/static/img/favicon_32.ico")
+		if _, err := os.Stat(iconPath); err == nil {
+			// 图标文件存在，读取图标
+			iconData, err := os.ReadFile(iconPath)
+			if err == nil {
+				systray.SetIcon(iconData)
+				iconLoaded = true
+				logger.Info("成功从物理文件系统加载32x32图标: %s", iconPath)
+			} else {
+				logger.Error("读取32x32图标文件失败: %v", err)
+			}
 		} else {
-			logger.Error("读取图标文件失败: %v", err)
+			logger.Warn("找不到32x32图标文件: %s, 错误: %v", iconPath, err)
 		}
+	}
+
+	// 如果32x32图标加载失败，尝试加载128x128图标
+	if !iconLoaded {
+		// 尝试从嵌入式文件系统加载
+		icon128Data, err := web.GetEmbeddedFile(icon128Path)
+		if err == nil && len(icon128Data) > 0 {
+			systray.SetIcon(icon128Data)
+			iconLoaded = true
+			logger.Info("成功从嵌入式文件系统加载128x128图标")
+		} else {
+			logger.Warn("从嵌入式文件系统加载128x128图标失败: %v", err)
+
+			// 尝试从物理文件系统加载（作为备用）
+			iconPath := getAbsolutePath("internal/web/static/img/favicon_128.ico")
+			if _, err := os.Stat(iconPath); err == nil {
+				// 图标文件存在，读取图标
+				iconData, err := os.ReadFile(iconPath)
+				if err == nil {
+					systray.SetIcon(iconData)
+					iconLoaded = true
+					logger.Info("成功从物理文件系统加载128x128图标: %s", iconPath)
+				} else {
+					logger.Error("读取128x128图标文件失败: %v", err)
+				}
+			} else {
+				logger.Error("找不到128x128图标文件: %s, 错误: %v", iconPath, err)
+			}
+		}
+	}
+
+	if !iconLoaded {
+		logger.Error("无法加载任何系统托盘图标，托盘图标将显示为默认图标")
 	}
 
 	// 获取版本号

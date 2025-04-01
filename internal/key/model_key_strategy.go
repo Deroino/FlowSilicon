@@ -1,6 +1,5 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 20:44:20
   @desc: 模型特定的密钥选择策略
 **/
 
@@ -12,6 +11,9 @@ import (
 	"flowsilicon/internal/model"
 	"strings"
 )
+
+// KeySelectionStrategy 定义密钥选择策略类型
+type KeySelectionStrategy int
 
 // GetModelSpecificKey 根据模型名称获取特定的密钥
 func GetModelSpecificKey(modelName string) (string, bool, error) {

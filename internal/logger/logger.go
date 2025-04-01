@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 20:42:10
-  @desc:
+  @desc: 日志记录系统，提供多级别日志、文件轮转和清理功能
 **/
 
 package logger
@@ -61,7 +60,6 @@ func SetLogLevel(level string) {
 	if _, ok := logLevelWeights[level]; !ok {
 		// 如果是无效的日志等级，则使用默认等级
 		level = LevelWarn
-		log.Printf("无效的日志等级: %s，已设置为默认值: %s", level, LevelWarn)
 	}
 
 	// 使用锁保护更新全局变量
@@ -149,7 +147,7 @@ func Init() error {
 // SetMaxLogSize 设置日志文件最大大小
 func SetMaxLogSize(sizeMB int) {
 	if sizeMB <= 0 {
-		sizeMB = 10 // 如果设置为0或负数，使用默认值10MB
+		sizeMB = 1 // 如果设置为0或负数，使用默认值1MB
 	}
 
 	// 更新最大大小
@@ -201,9 +199,6 @@ func CleanLogsNow() {
 	if !initialized {
 		return
 	}
-
-	// 使用标准库日志，它不会触发我们的锁机制
-	log.Printf("手动触发日志清理，将检查文件大小是否超过限制...")
 
 	// 在单独的goroutine中清理日志，避免阻塞主线程
 	go func() {

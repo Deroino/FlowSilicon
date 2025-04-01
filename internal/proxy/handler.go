@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 20:43:43
-  @desc:
+  @desc: API代理处理模块，负责转发和处理各类API请求，包含重试逻辑和流式响应处理
 **/
 
 package proxy
@@ -14,6 +13,7 @@ import (
 	"flowsilicon/internal/config"
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
+	"flowsilicon/internal/model"
 	"flowsilicon/pkg/utils"
 	"fmt"
 	"io"
@@ -25,6 +25,33 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// 在成功处理请求后更新调用次数
+func updateModelCallCount(modelName string) {
+	if modelName == "" {
+		return
+	}
+
+	// 检查模型名称格式
+	if strings.Contains(modelName, "/") || strings.Contains(modelName, "-") {
+		// 更新模型调用次数
+		err := model.UpdateModelCallCount(modelName)
+		if err != nil {
+			// 如果是数据库相关错误才记录警告
+			if strings.Contains(err.Error(), "数据库") {
+				logger.Warn("更新模型 %s 调用次数失败: %v", modelName, err)
+			} else {
+				// 其他错误使用Info级别记录，避免警告日志过多
+				logger.Info("更新模型 %s 调用次数跳过: %v", modelName, err)
+			}
+		} else {
+			logger.Info("更新模型 %s 调用次数成功", modelName)
+		}
+	} else {
+		// 模型名称格式不符合预期，使用Info记录
+		logger.Info("模型名称格式不符合预期，跳过更新调用次数: %s", modelName)
+	}
+}
 
 // 处理 API 代理请求
 func HandleApiProxy(c *gin.Context) {
@@ -70,7 +97,12 @@ func HandleApiProxy(c *gin.Context) {
 	}
 
 	// 调用处理请求的函数，包含重试逻辑
-	handleApiProxyWithRetry(c, targetURL, bodyBytes, requestType, modelName, tokenEstimate)
+	success := handleApiProxyWithRetry(c, targetURL, bodyBytes, requestType, modelName, tokenEstimate)
+
+	// 如果请求成功且有模型名称，更新模型调用次数
+	if success && modelName != "" {
+		go updateModelCallCount(modelName)
+	}
 }
 
 // isModelDisabled 检查模型是否被禁用
@@ -89,27 +121,27 @@ func isModelDisabled(modelName string) bool {
 }
 
 // 添加带重试逻辑的API代理处理函数
-func handleApiProxyWithRetry(c *gin.Context, targetURL string, bodyBytes []byte, requestType string, modelName string, tokenEstimate int) {
+func handleApiProxyWithRetry(c *gin.Context, targetURL string, bodyBytes []byte, requestType string, modelName string, tokenEstimate int) bool {
 	// 获取配置
 	cfg := config.GetConfig()
 	retryConfig := cfg.ApiProxy.Retry
 
 	// 如果最大重试次数为0，直接处理一次请求
 	if retryConfig.MaxRetries <= 0 {
-		processApiRequest(c, targetURL, bodyBytes, requestType, modelName, tokenEstimate)
-		return
+		success, _ := processApiRequest(c, targetURL, bodyBytes, requestType, modelName, tokenEstimate)
+		return success
 	}
 
 	// 第一次尝试
 	firstTry, err := processApiRequest(c, targetURL, bodyBytes, requestType, modelName, tokenEstimate)
 	if firstTry {
 		// 请求成功，直接返回
-		return
+		return true
 	}
 
 	// 检查是否需要重试
 	if !shouldRetry(err, retryConfig) {
-		return
+		return false
 	}
 
 	// 进行重试
@@ -128,7 +160,7 @@ func handleApiProxyWithRetry(c *gin.Context, targetURL string, bodyBytes []byte,
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "No suitable API keys available for retry",
 			})
-			return
+			return false
 		}
 
 		// 记录重试信息
@@ -141,7 +173,7 @@ func handleApiProxyWithRetry(c *gin.Context, targetURL string, bodyBytes []byte,
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": fmt.Sprintf("Failed to create request for retry: %v", err),
 			})
-			return
+			return false
 		}
 
 		// 复制原始请求的 headers
@@ -156,7 +188,7 @@ func handleApiProxyWithRetry(c *gin.Context, targetURL string, bodyBytes []byte,
 		}
 
 		// 设置 Authorization header
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+		utils.SetCommonHeaders(req, apiKey)
 
 		// 创建 HTTP 客户端
 		client := utils.CreateClient()
@@ -218,7 +250,7 @@ func handleApiProxyWithRetry(c *gin.Context, targetURL string, bodyBytes []byte,
 
 		// 如果请求成功，返回
 		if success {
-			return
+			return true
 		}
 	}
 
@@ -226,6 +258,7 @@ func handleApiProxyWithRetry(c *gin.Context, targetURL string, bodyBytes []byte,
 	c.JSON(http.StatusInternalServerError, gin.H{
 		"error": "All retry attempts failed",
 	})
+	return false
 }
 
 // 处理API请求，返回是否成功处理和可能的错误
@@ -268,7 +301,7 @@ func processApiRequest(c *gin.Context, targetURL string, bodyBytes []byte, reque
 	}
 
 	// 设置 Authorization header
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	utils.SetCommonHeaders(req, apiKey)
 
 	// 创建 HTTP 客户端
 	client := utils.CreateClient()
@@ -633,16 +666,21 @@ func HandleOpenAIProxy(c *gin.Context) {
 	}
 
 	// 调用带重试逻辑的函数处理OpenAI格式请求
-	handleOpenAIProxyWithRetry(c, targetURL, transformedBody, bodyBytes, requestType, modelName, tokenEstimate, requestPath)
+	success := processOpenAIRequestWithRetry(c, targetURL, transformedBody, bodyBytes, requestType, modelName, tokenEstimate, requestPath)
+
+	// 如果请求成功且有模型名称，更新模型调用次数
+	if success && modelName != "" {
+		go updateModelCallCount(modelName)
+	}
 }
 
-// 添加带重试逻辑的OpenAI代理处理函数
-func handleOpenAIProxyWithRetry(c *gin.Context, targetURL string, transformedBody []byte, originalBody []byte, requestType string, modelName string, tokenEstimate int, path string) {
+// 添加带重试逻辑的OpenAI请求处理函数
+func processOpenAIRequestWithRetry(c *gin.Context, targetURL string, transformedBody []byte, originalBody []byte, requestType string, modelName string, tokenEstimate int, path string) bool {
 	// 检查是否有直接从以前的流式响应中设置的标志
 	if streamCompleted, exists := c.Get("stream_completed"); exists && streamCompleted.(bool) {
 		logger.Info("检测到从流式响应完成后的后续请求，直接返回OK")
 		c.Status(http.StatusOK)
-		return
+		return true
 	}
 
 	// 获取配置
@@ -663,25 +701,25 @@ func handleOpenAIProxyWithRetry(c *gin.Context, targetURL string, transformedBod
 	// 流式请求需要特殊处理，暂不支持重试
 	if isStreamRequest {
 		handleOpenAIStreamRequest(c, targetURL, transformedBody, requestType, modelName, tokenEstimate, originalBody)
-		return
+		return true
 	}
 
 	// 如果最大重试次数为0，直接处理一次请求
 	if retryConfig.MaxRetries <= 0 {
-		processOpenAIRequest(c, targetURL, transformedBody, originalBody, requestType, modelName, tokenEstimate, path)
-		return
+		success, _ := processOpenAIRequest(c, targetURL, transformedBody, originalBody, requestType, modelName, tokenEstimate, path)
+		return success
 	}
 
 	// 第一次尝试
 	firstTry, err := processOpenAIRequest(c, targetURL, transformedBody, originalBody, requestType, modelName, tokenEstimate, path)
 	if firstTry {
 		// 请求成功，直接返回
-		return
+		return true
 	}
 
 	// 检查是否需要重试
 	if !shouldRetry(err, retryConfig) {
-		return
+		return false
 	}
 
 	// 进行重试
@@ -700,7 +738,7 @@ func handleOpenAIProxyWithRetry(c *gin.Context, targetURL string, transformedBod
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "No suitable API keys available for retry",
 			})
-			return
+			return false
 		}
 
 		// 记录重试信息
@@ -713,7 +751,7 @@ func handleOpenAIProxyWithRetry(c *gin.Context, targetURL string, transformedBod
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": fmt.Sprintf("Failed to create request for retry: %v", err),
 			})
-			return
+			return false
 		}
 
 		// 复制原始请求的 headers
@@ -728,10 +766,7 @@ func handleOpenAIProxyWithRetry(c *gin.Context, targetURL string, transformedBod
 		}
 
 		// 设置 Authorization header
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-
-		// 设置 Content-Type header
-		req.Header.Set("Content-Type", "application/json")
+		utils.SetCommonHeaders(req, apiKey)
 
 		// 创建 HTTP 客户端
 		client := utils.CreateClient()
@@ -762,7 +797,7 @@ func handleOpenAIProxyWithRetry(c *gin.Context, targetURL string, transformedBod
 
 			// 更新密钥失败记录
 			key.UpdateApiKeyStatus(apiKey, false)
-			return
+			continue
 		}
 		defer resp.Body.Close()
 
@@ -810,7 +845,7 @@ func handleOpenAIProxyWithRetry(c *gin.Context, targetURL string, transformedBod
 
 		// 如果请求成功，返回
 		if success {
-			return
+			return true
 		}
 	}
 
@@ -818,6 +853,7 @@ func handleOpenAIProxyWithRetry(c *gin.Context, targetURL string, transformedBod
 	c.JSON(http.StatusInternalServerError, gin.H{
 		"error": "All retry attempts failed",
 	})
+	return false
 }
 
 // shouldRetry 判断是否需要重试
@@ -851,6 +887,26 @@ func handleOpenAIStreamRequest(c *gin.Context, targetURL string, transformedBody
 		return
 	}
 
+	// 检查请求体中的stream字段是否为true
+	var requestData map[string]interface{}
+	if err := json.Unmarshal(originalBody, &requestData); err == nil {
+		if stream, exists := requestData["stream"]; exists {
+			// 如果stream字段存在且为false，则应该使用非流式处理
+			if streamBool, ok := stream.(bool); ok && !streamBool {
+				logger.Info("检测到请求中stream=false，转为非流式请求处理")
+				// 处理为非流式请求
+				_, err := processOpenAIRequest(c, targetURL, transformedBody, originalBody, requestType, modelName, tokenEstimate, c.Request.URL.Path)
+				if err != nil {
+					logger.Error("处理非流式请求失败: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"error": fmt.Sprintf("处理请求失败: %v", err),
+					})
+				}
+				return
+			}
+		}
+	}
+
 	// 检查模型是否被禁用
 	if modelName != "" && isModelDisabled(modelName) {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -872,24 +928,21 @@ func handleOpenAIStreamRequest(c *gin.Context, targetURL string, transformedBody
 		return
 	}
 
-	// 检查是否是Deepseek R1模型
-	isDeepseekR1 := false
-	var requestData map[string]interface{}
-	if err := json.Unmarshal(originalBody, &requestData); err == nil {
-		if model, ok := requestData["model"].(string); ok {
-			if strings.Contains(strings.ToLower(model), "deepseek") && strings.Contains(model, "r1") {
-				isDeepseekR1 = true
-				logger.Info("检测到Deepseek R1模型请求，使用专用优化客户端和更长的超时设置")
-			}
+	// 检查是否是推理模型（类型为7）
+	isReasonModelType := false
+	if modelName != "" {
+		isReasonModelType = isReasonModel(modelName)
+		if isReasonModelType {
+			logger.Info("检测到推理模型请求：%s，使用专用优化客户端和更长的超时设置", modelName)
 		}
 	}
 
 	// 创建带有超时的上下文，设置合理的超时时间
 	var requestTimeout time.Duration
-	if isDeepseekR1 {
-		// 为Deepseek R1创建更长的超时时间（但比之前的更合理）
-		requestTimeout = 60 * time.Minute // 60分钟对于大多数模型应该足够
-		logger.Info("为Deepseek R1设置60分钟的请求超时")
+	if isReasonModelType {
+		// 为推理模型创建更长的超时时间
+		requestTimeout = 60 * time.Minute // 60分钟对于大多数推理模型应该足够
+		logger.Info("为推理模型设置60分钟的请求超时")
 	} else {
 		// 为其他模型使用标准超时(10分钟)
 		requestTimeout = 10 * time.Minute
@@ -920,75 +973,34 @@ func handleOpenAIStreamRequest(c *gin.Context, targetURL string, transformedBody
 		}
 	}
 
-	// 设置 Authorization header
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	// 设置 Authorization header 和其他通用头
+	utils.SetCommonHeaders(req, apiKey)
 
-	// 设置 Content-Type header
-	req.Header.Set("Content-Type", "application/json")
-
-	// 对Deepseek R1添加特殊请求头
-	if isDeepseekR1 {
-		req.Header.Set("X-Accel-Buffering", "no") // 禁用Nginx缓冲
-		req.Header.Set("Cache-Control", "no-cache, no-transform")
-		req.Header.Set("Connection", "keep-alive")
-		req.Header.Set("Transfer-Encoding", "chunked")
-		req.Header.Set("Keep-Alive", "timeout=600")   // 添加10分钟Keep-Alive超时
-		req.Header.Set("X-DeepSeek-Priority", "high") // 自定义头，可能会被忽略，但不影响
+	// 为推理模型添加特殊请求头
+	if isReasonModelType {
+		utils.SetInferenceModelHeaders(req)
 	}
 
-	// 创建 HTTP 客户端，根据模型类型选择合适的超时设置
+	// 创建 HTTP 客户端，根据模型类型选择合适的超时设置和响应头
 	var client *http.Client
-	if isDeepseekR1 {
-		// 对Deepseek R1使用超时设置更合理的客户端
-		transport := &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second, // 连接超时
-				KeepAlive: 60 * time.Second, // 保持连接活跃
-				DualStack: true,
-			}).DialContext,
-			MaxIdleConns:           100,              // 最大空闲连接数
-			IdleConnTimeout:        90 * time.Second, // 空闲连接超时
-			TLSHandshakeTimeout:    20 * time.Second, // TLS握手超时
-			ExpectContinueTimeout:  5 * time.Second,  // 100-continue状态码的等待时间
-			ResponseHeaderTimeout:  60 * time.Second, // 响应头超时
-			MaxResponseHeaderBytes: 32 * 1024,        // 最大响应头大小
-		}
-
-		client = &http.Client{
-			Transport: transport,
-			// 客户端总超时设置的略大于上下文超时，让上下文控制主要超时行为
-			Timeout: requestTimeout + 30*time.Second,
-		}
-		logger.Info("Deepseek R1使用优化客户端和%v的请求超时", requestTimeout)
+	if isReasonModelType {
+		// 使用推理模型专用客户端
+		client = utils.CreateInferenceModelClient(requestTimeout)
+		logger.Info("推理模型使用优化客户端和%v的请求超时", requestTimeout)
+		// 设置推理模型专用的流式响应头
+		utils.SetInferenceStreamResponseHeaders(c.Writer)
 	} else {
-		// 为普通模型创建客户端，设置合理的超时
-		transport := &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   10 * time.Second,
-				KeepAlive: 30 * time.Second,
-				DualStack: true,
-			}).DialContext,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-			ResponseHeaderTimeout: 20 * time.Second,
-		}
-
-		client = &http.Client{
-			Transport: transport,
-			// 客户端总超时设置的略大于上下文超时，让上下文控制主要超时行为
-			Timeout: requestTimeout + 10*time.Second,
-		}
+		// 使用普通模型专用客户端
+		client = utils.CreateStandardModelClient(requestTimeout)
+		logger.Info("普通模型使用标准客户端和%v的请求超时", requestTimeout)
+		// 设置标准流式响应头
+		utils.SetStreamResponseHeaders(c.Writer)
 	}
 
 	// 设置响应头，指示这是流式响应
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("Transfer-Encoding", "chunked")
+	// 注意：这是一个重复的设置，上面已经根据模型类型设置了适当的响应头，这行将被移除
+	logger.Info("跳过重复的响应头设置")
+	// utils.SetStreamResponseHeaders(c.Writer)
 
 	// 监听客户端连接关闭
 	clientCtx, clientCancel := context.WithCancel(ctx)
@@ -1034,14 +1046,71 @@ func handleOpenAIStreamRequest(c *gin.Context, targetURL string, transformedBody
 		key.UpdateApiKeyStatus(apiKey, false)
 
 		// 尝试读取错误消息
-		errBody, _ := io.ReadAll(resp.Body)
+		errBody, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
 		// 记录详细的状态码和错误信息
-		logger.Error("流式请求返回非200状态码: %d, 响应: %s", resp.StatusCode, string(errBody))
+		if err != nil {
+			logger.Error("读取错误响应体失败: %v", err)
+			errBody = []byte("无法读取响应内容")
+		} else if len(errBody) == 0 {
+			logger.Error("流式请求返回非200状态码: %d, 但响应体为空", resp.StatusCode)
+			errBody = []byte(fmt.Sprintf("服务器返回 %d 状态码，但未提供具体错误信息", resp.StatusCode))
+		} else {
+			logger.Error("流式请求返回非200状态码: %d, 响应: %s", resp.StatusCode, string(errBody))
+		}
 
-		c.Status(resp.StatusCode)
-		c.Writer.Write(errBody)
+		// 尝试解析JSON错误消息
+		var errorResponse struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Error   struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+			} `json:"error"`
+		}
+
+		var errorMessage string
+		var errorType string
+		var errorCode interface{}
+
+		// 如果响应体不为空，尝试解析JSON
+		if len(errBody) > 0 {
+			if err := json.Unmarshal(errBody, &errorResponse); err == nil {
+				// 首先尝试获取标准OpenAI错误格式
+				if errorResponse.Error.Message != "" {
+					errorMessage = errorResponse.Error.Message
+					errorType = errorResponse.Error.Type
+					errorCode = errorResponse.Error.Code
+				} else if errorResponse.Message != "" {
+					// 然后尝试获取自定义API错误格式
+					errorMessage = errorResponse.Message
+					errorType = "api_error"
+					errorCode = errorResponse.Code
+				}
+			}
+		}
+
+		// 如果无法解析，使用原始错误信息或默认信息
+		if errorMessage == "" {
+			if len(errBody) > 0 {
+				errorMessage = string(errBody)
+			} else {
+				errorMessage = fmt.Sprintf("服务器返回了 %d 状态码，但未提供详细信息", resp.StatusCode)
+			}
+			errorType = "unknown_error"
+			errorCode = resp.StatusCode
+		}
+
+		// 以结构化方式返回错误
+		c.JSON(resp.StatusCode, gin.H{
+			"error": gin.H{
+				"message": errorMessage,
+				"type":    errorType,
+				"code":    errorCode,
+			},
+		})
 		return
 	}
 
@@ -1104,10 +1173,7 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 	}
 
 	// 设置 Authorization header
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-
-	// 设置 Content-Type header
-	req.Header.Set("Content-Type", "application/json")
+	utils.SetCommonHeaders(req, apiKey)
 
 	// 创建 HTTP 客户端
 	client := utils.CreateClient()
@@ -1145,7 +1211,56 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 	if !success {
 		// 更新密钥失败记录
 		key.UpdateApiKeyStatus(apiKey, false)
-		return false, fmt.Errorf("OpenAI格式API请求失败，状态码: %d", resp.StatusCode)
+
+		// 尝试解析JSON错误消息
+		var errorResponse struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Error   struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+			} `json:"error"`
+		}
+
+		var errorMessage string
+		var errorType string
+		var errorCode interface{}
+
+		if err := json.Unmarshal(respBody, &errorResponse); err == nil {
+			// 首先尝试获取标准OpenAI错误格式
+			if errorResponse.Error.Message != "" {
+				errorMessage = errorResponse.Error.Message
+				errorType = errorResponse.Error.Type
+				errorCode = errorResponse.Error.Code
+			} else if errorResponse.Message != "" {
+				// 然后尝试获取自定义API错误格式
+				errorMessage = errorResponse.Message
+				errorType = "api_error"
+				errorCode = errorResponse.Code
+			}
+		}
+
+		// 如果无法解析，使用原始错误信息
+		if errorMessage == "" {
+			errorMessage = string(respBody)
+			errorType = "unknown_error"
+			errorCode = resp.StatusCode
+		}
+
+		// 记录详细错误信息
+		logger.Error("OpenAI请求失败，状态码: %d, 错误: %s", resp.StatusCode, errorMessage)
+
+		// 以结构化方式返回错误
+		c.JSON(resp.StatusCode, gin.H{
+			"error": gin.H{
+				"message": errorMessage,
+				"type":    errorType,
+				"code":    errorCode,
+			},
+		})
+
+		return false, fmt.Errorf("OpenAI格式API请求失败: %s", errorMessage)
 	}
 
 	// 更新密钥状态
@@ -1217,8 +1332,7 @@ func HandleModelsRequest(c *gin.Context, apiKey string) {
 	}
 
 	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	utils.SetCommonHeaders(req, apiKey)
 	// 创建HTTP客户端
 	client := utils.CreateClient()
 
@@ -1547,8 +1661,19 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 					// 更新token估算
 					var jsonData map[string]interface{}
 					if err := json.Unmarshal(transformedData, &jsonData); err == nil {
-						// 估算token数量
-						if choices, ok := jsonData["choices"].([]interface{}); ok && len(choices) > 0 {
+						// 首先尝试从usage中获取total_tokens
+						if usage, ok := jsonData["usage"].(map[string]interface{}); ok {
+							if tt, ok := usage["total_tokens"].(float64); ok {
+								// 更新总tokens数量为API返回的值
+								if eventCount <= 3 || eventCount%50 == 0 {
+									logger.Info("事件#%d: 从API返回的usage中读取total_tokens=%d", eventCount, int(tt))
+								}
+								// 使用API返回的token数量
+								totalTokens = int(tt)
+								// 继续处理，但不再进行token估算
+							}
+						} else if choices, ok := jsonData["choices"].([]interface{}); ok && len(choices) > 0 {
+							// 如果没有usage字段，继续使用原来的估算方法
 							if choice, ok := choices[0].(map[string]interface{}); ok {
 								if delta, ok := choice["delta"].(map[string]interface{}); ok {
 									if content, ok := delta["content"].(string); ok {
@@ -1845,6 +1970,16 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 		totalTokens = minTokens
 	}
 
+	// 记录最终使用的token数
+	var tokenSource string
+	if totalTokens > 0 {
+		tokenSource = "API返回或有效估算"
+	} else {
+		tokenSource = "基于事件的保底估算"
+	}
+	logger.Info("流式响应最终统计: total_tokens=%d (来源: %s)",
+		totalTokens, tokenSource)
+
 	config.AddKeyRequestStat(apiKey, 1, totalTokens)
 
 	// 更新每日统计数据
@@ -1855,11 +1990,16 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 			modelNameForStats = model
 		}
 	}
+
+	// 计算prompt和completion的分配比例
 	promptTokensCount := totalTokens / 3                     // 估计输入占1/3
 	completionTokensCount := totalTokens - promptTokensCount // 估计输出占2/3
+
+	// 添加到每日统计
 	config.AddDailyRequestStat(apiKey, modelNameForStats, 1, promptTokensCount, completionTokensCount, true)
 
-	logger.Info("流式响应完成，估计token数: %d，处理了 %d 个事件", totalTokens, eventCount)
+	logger.Info("流式响应完成，总tokens=%d (prompt=%d, completion=%d)，处理了 %d 个事件",
+		totalTokens, promptTokensCount, completionTokensCount, eventCount)
 
 	// 确保响应已经完成并标记为结束
 	// 检查是否已经发送了[DONE]事件，如果没有，发送一个
@@ -1907,6 +2047,25 @@ func extractTokenCounts(respBody []byte) (int, int) {
 			promptTokens := 0
 			completionTokens := 0
 
+			// 首先尝试直接获取total_tokens
+			if tt, ok := usage["total_tokens"].(float64); ok {
+				// 如果没有详细的提示和完成令牌数，估算分配
+				promptTokens = int(tt) / 3                // 估算提示占1/3
+				completionTokens = int(tt) - promptTokens // 估算完成占2/3
+
+				// 然后尝试获取更精确的提示和完成令牌数
+				if pt, ok := usage["prompt_tokens"].(float64); ok {
+					promptTokens = int(pt)
+				}
+
+				if ct, ok := usage["completion_tokens"].(float64); ok {
+					completionTokens = int(ct)
+				}
+
+				return promptTokens, completionTokens
+			}
+
+			// 如果没有找到total_tokens，尝试使用原来的方法
 			if pt, ok := usage["prompt_tokens"].(float64); ok {
 				promptTokens = int(pt)
 			}
@@ -1954,10 +2113,7 @@ func forwardUserInfoRequest(c *gin.Context, targetURL string) {
 	}
 
 	// 设置 Authorization header
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-
-	// 设置 Content-Type header
-	req.Header.Set("Content-Type", "application/json")
+	utils.SetCommonHeaders(req, apiKey)
 
 	// 创建 HTTP 客户端
 	client := utils.CreateClient()

@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 20:42:20
-  @desc:
+  @desc: API密钥管理模块，提供密钥选择、余额检查和自动禁用恢复功能
 **/
 
 package key
@@ -32,10 +31,6 @@ const (
 	KeyModeSingle KeyMode = "single"
 	// KeyModeSelected 轮询选中的密钥
 	KeyModeSelected KeyMode = "selected"
-
-	// 新增常量
-	MaxConsecutiveFailures = 5  // 最大连续失败次数，超过此值将禁用密钥
-	RecoveryInterval       = 10 // 恢复检查间隔（分钟）
 )
 
 var (
@@ -497,7 +492,7 @@ func UpdateApiKeyStatus(key string, success bool) {
 
 // ForceRefreshAllKeysBalance 强制刷新所有API密钥的余额
 // 在程序启动时调用，确保所有API密钥的余额都是最新的
-// 设置2秒超时限制，如果超时则报错
+// 设置30秒超时限制，如果超时则报错
 func ForceRefreshAllKeysBalance() error {
 	keys := config.GetApiKeys()
 	logger.Info("启动时强制刷新 %d 个API密钥的余额", len(keys))
@@ -505,8 +500,8 @@ func ForceRefreshAllKeysBalance() error {
 	// 创建一个等待组，用于等待所有检查完成
 	var wg sync.WaitGroup
 
-	// 使用带超时的上下文，强制限制2秒超时
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// 使用带超时的上下文，强制限制30秒超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// 创建一个通道用来通知完成
@@ -516,17 +511,28 @@ func ForceRefreshAllKeysBalance() error {
 	var refreshErr error
 	var errMu sync.Mutex
 
+	// 限制并发数，避免并发过高导致请求失败
+	// 每次最多同时处理50个请求
+	const maxConcurrency = 50
+	semaphore := make(chan struct{}, maxConcurrency)
+
 	for i := range keys {
 		wg.Add(1)
 		go func(key config.ApiKey) {
-			defer wg.Done()
+			// 获取信号量
+			semaphore <- struct{}{}
+			defer func() {
+				// 释放信号量
+				<-semaphore
+				wg.Done()
+			}()
 
 			// 检查上下文是否已取消
 			select {
 			case <-ctx.Done():
 				errMu.Lock()
 				if refreshErr == nil {
-					refreshErr = fmt.Errorf("刷新余额太频繁了")
+					refreshErr = fmt.Errorf("刷新余额超时了")
 				}
 				errMu.Unlock()
 				logger.Error("强制刷新: 检查API密钥 %s 时上下文已取消", MaskKey(key.Key))
@@ -589,9 +595,9 @@ func ForceRefreshAllKeysBalance() error {
 	case <-done:
 		logger.Info("所有API密钥余额检查已完成")
 	case <-ctx.Done():
-		logger.Warn("API密钥余额检查超时，超过2秒限制")
+		logger.Warn("API密钥余额检查超时，超过30秒限制")
 		if refreshErr == nil {
-			refreshErr = fmt.Errorf("刷新余额太频繁了")
+			refreshErr = fmt.Errorf("刷新余额超时了，请稍后再试")
 		}
 	}
 

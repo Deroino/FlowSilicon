@@ -1,7 +1,6 @@
 /**
   @author: Hanhai
-  @since: 2025/3/16 20:43:23
-  @desc:
+  @desc: API错误处理模块，定义API错误类型和相关方法
 **/
 
 package proxy
