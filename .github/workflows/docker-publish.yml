@@ -1,0 +1,56 @@
+name: Build and Push Docker Image
+
+on:
+  release:
+    types: [published]
+  push:
+    branches:
+      - feature/patch-improvements
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker-build:
+    uses: Deroino/docker-build-workflow/.github/workflows/reusable-docker-build.yaml@main
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+    with:
+      # Multi-platform build for ARM64 and AMD64
+      platforms: linux/amd64,linux/arm64
+      
+      # Push to Docker Hub and GHCR
+      dockerhub-enable: true
+      ghcr-enable: true
+      image-names: |
+        docker.io/papillon0121/lightrag-modifyed
+        ghcr.io/deroino/lightrag-modifyed
+      
+      # Tag rules for different events
+      tag-rules: |
+        type=raw,value=latest,enable=${{ github.ref_name == 'feature/patch-improvements' }},priority=200
+        type=ref,event=branch,priority=100
+        type=raw,value=stable-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.ref_name == 'feature/patch-improvements' }},priority=300
+      
+      # Enable email notifications
+      email-enable: true
+      email-to: wangchenghow@foxmail.com
+      email-server: smtp.qq.com
+      email-port: 465
+      
+      # Enable push notifications
+      push-notify-enable: true
+      push-notify-url: https://reminderapi.joyslinktech.com/v1/push/key/PSH1747376891203bCK3tG1pKvx5yAHo
+      
+    secrets:
+      # Docker Hub credentials
+      dockerhub-username: ${{ secrets.DOCKER_USERNAME }}
+      dockerhub-token: ${{ secrets.DOCKER_PASSWORD }}
+      
+      # Email credentials
+      email-username: ${{ secrets.EMAIL_USERNAME }}
+      email-password: ${{ secrets.EMAIL_PASSWORD }}
