@@ -412,8 +412,9 @@ func HandleOpenAIProxy(c *gin.Context) {
 
 					// 使用background上下文并设置更长的超时
 					ctx := context.Background()
-					// 创建一个新的上下文，超时时间为180分钟(3小时)
-					ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+					// 创建一个新的上下文，使用配置的超时时间
+					cfg := config.GetConfig()
+					ctx, cancel := context.WithTimeout(ctx, time.Duration(cfg.RequestSettings.ProxyHandler.StandardTimeout)*time.Minute)
 					defer cancel()
 					c.Request = c.Request.WithContext(ctx)
 
@@ -939,14 +940,15 @@ func handleOpenAIStreamRequest(c *gin.Context, targetURL string, transformedBody
 
 	// 创建带有超时的上下文，设置合理的超时时间
 	var requestTimeout time.Duration
+	cfg := config.GetConfig()
 	if isReasonModelType {
 		// 为推理模型创建更长的超时时间
-		requestTimeout = 60 * time.Minute // 60分钟对于大多数推理模型应该足够
-		logger.Info("为推理模型设置60分钟的请求超时")
+		requestTimeout = time.Duration(cfg.RequestSettings.ProxyHandler.InferenceTimeout) * time.Minute
+		logger.Info("为推理模型设置%d分钟的请求超时", cfg.RequestSettings.ProxyHandler.InferenceTimeout)
 	} else {
-		// 为其他模型使用标准超时(10分钟)
-		requestTimeout = 10 * time.Minute
-		logger.Info("为普通模型设置10分钟的请求超时")
+		// 为其他模型使用标准超时
+		requestTimeout = time.Duration(cfg.RequestSettings.ProxyHandler.StandardTimeout) * time.Minute
+		logger.Info("为普通模型设置%d分钟的请求超时", cfg.RequestSettings.ProxyHandler.StandardTimeout)
 	}
 
 	// 创建带超时的上下文
@@ -1445,12 +1447,13 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 
 	// 设置合理的超时时间，根据模型类型调整
 	var streamTimeout time.Duration
+	cfg := config.GetConfig()
 	if isDeepseekR1 {
-		streamTimeout = 60 * time.Minute // Deepseek R1 模型设置60分钟超时
-		logger.Info("为Deepseek R1流式响应设置60分钟超时")
+		streamTimeout = time.Duration(cfg.RequestSettings.ProxyHandler.StreamTimeout) * time.Minute // 使用配置的流式超时
+		logger.Info("为Deepseek R1流式响应设置%d分钟超时", cfg.RequestSettings.ProxyHandler.StreamTimeout)
 	} else {
-		streamTimeout = 10 * time.Minute // 普通模型设置10分钟超时
-		logger.Info("为普通模型流式响应设置10分钟超时")
+		streamTimeout = time.Duration(cfg.RequestSettings.ProxyHandler.StandardTimeout) * time.Minute // 使用配置的标准超时
+		logger.Info("为普通模型流式响应设置%d分钟超时", cfg.RequestSettings.ProxyHandler.StandardTimeout)
 	}
 
 	// 使用带超时的上下文，确保有明确的超时控制
@@ -1470,9 +1473,9 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 	var lastProgressTime = time.Now() // 上次进度更新时间
 
 	// 心跳间隔 - 对Deepseek R1更频繁
-	var heartbeatInterval time.Duration = 10 * time.Second // 从5秒改为10秒
+	var heartbeatInterval time.Duration = time.Duration(cfg.RequestSettings.ProxyHandler.HeartbeatInterval) * time.Second
 	if isDeepseekR1 {
-		heartbeatInterval = 3 * time.Second // 从500毫秒改为3秒
+		heartbeatInterval = time.Duration(cfg.RequestSettings.ProxyHandler.HeartbeatInterval/3) * time.Second // R1模型使用更短的心跳间隔
 	}
 
 	// 异常处理通道
@@ -1482,21 +1485,21 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 	// 创建缓冲区用于批量发送
 	var buffer bytes.Buffer
 	// 对于Deepseek R1，降低缓冲区阈值，确保更频繁发送数据
-	bufferThreshold := 1024 // 1KB
+	bufferThreshold := cfg.RequestSettings.ProxyHandler.BufferThreshold
 	if isDeepseekR1 {
-		bufferThreshold = 256 // 从64字节改为256字节，减少过于频繁的发送
+		bufferThreshold = cfg.RequestSettings.ProxyHandler.BufferThreshold / 4 // R1模型使用更小的缓冲区阈值
 	}
 
 	// 上次刷新时间
 	lastFlushTime := time.Now()
 	// 最大刷新间隔 (毫秒)，对Deepseek R1使用更短的间隔
-	maxFlushInterval := 500 * time.Millisecond // 从200毫秒改为500毫秒
+	maxFlushInterval := time.Duration(cfg.RequestSettings.ProxyHandler.MaxFlushInterval) * time.Millisecond
 	if isDeepseekR1 {
-		maxFlushInterval = 200 * time.Millisecond // 从30毫秒改为200毫秒
+		maxFlushInterval = time.Duration(cfg.RequestSettings.ProxyHandler.MaxFlushInterval/2) * time.Millisecond // R1模型使用更短的刷新间隔
 	}
 
 	// 进度报告间隔
-	progressInterval := 10 * time.Second // 从5秒改为10秒
+	progressInterval := time.Duration(cfg.RequestSettings.ProxyHandler.ProgressInterval) * time.Second
 
 	// 连接已断开标志
 	var connectionClosed atomic.Bool
