@@ -731,7 +731,8 @@ func processOpenAIRequestWithRetry(c *gin.Context, targetURL string, transformed
 		}
 
 		// 记录重试信息
-		logger.Warn("OpenAI格式API请求第%d次重试: %s, 错误: %v", i+1, targetURL, err)
+		logger.Warn("OpenAI格式API请求第%d次重试: %s, 请求类型: %s, 模型: %s, 方法: %s, 路径: %s, 错误: %v", 
+			i+1, targetURL, requestType, modelName, c.Request.Method, path, err)
 
 		// 获取另一个API密钥进行重试
 		apiKey, err := key.GetBestKeyForRequest(requestType, modelName, tokenEstimate)
@@ -1262,7 +1263,8 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 			},
 		})
 
-		return false, fmt.Errorf("OpenAI格式API请求失败: %s", errorMessage)
+		return false, fmt.Errorf("OpenAI格式API请求失败: %s (请求类型: %s, 模型: %s, 方法: %s, 路径: %s, 目标URL: %s)", 
+			errorMessage, requestType, modelName, c.Request.Method, path, targetURL)
 	}
 
 	// 更新密钥状态
