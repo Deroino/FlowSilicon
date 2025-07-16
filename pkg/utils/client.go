@@ -29,18 +29,18 @@ func CreateClientWithTimeout(timeout time.Duration) *http.Client {
 
 	// 创建Transport
 	transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
-		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConns:        cfg.RequestSettings.HttpClient.MaxIdleConns,
+		MaxIdleConnsPerHost: cfg.RequestSettings.HttpClient.MaxIdleConnsPerHost,
+		IdleConnTimeout:     time.Duration(cfg.RequestSettings.HttpClient.IdleConnTimeout) * time.Second,
 		// 添加TCP连接的保持活动设置
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   time.Duration(cfg.RequestSettings.HttpClient.ConnectTimeout) * time.Second,
+			KeepAlive: time.Duration(cfg.RequestSettings.HttpClient.KeepAlive) * time.Second,
 		}).DialContext,
 		// 增加TLS握手超时
-		TLSHandshakeTimeout: 30 * time.Second,
+		TLSHandshakeTimeout: time.Duration(cfg.RequestSettings.HttpClient.TLSHandshakeTimeout) * time.Second,
 		// 响应体超时
-		ResponseHeaderTimeout: 60 * time.Second,
+		ResponseHeaderTimeout: time.Duration(cfg.RequestSettings.HttpClient.ResponseHeaderTimeout) * time.Second,
 		// 启用HTTP/2.0
 		ForceAttemptHTTP2: true,
 	}
@@ -119,19 +119,22 @@ func SetInferenceModelHeaders(req *http.Request) {
 // CreateInferenceModelClient 创建适用于推理模型的HTTP客户端
 // 使用更长的超时时间和更优化的连接设置
 func CreateInferenceModelClient(requestTimeout time.Duration) *http.Client {
+	// 获取配置
+	cfg := config.GetConfig()
+
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second, // 连接超时
-			KeepAlive: 60 * time.Second, // 保持连接活跃
+			Timeout:   time.Duration(cfg.RequestSettings.HttpClient.ConnectTimeout) * time.Second, // 连接超时
+			KeepAlive: time.Duration(cfg.RequestSettings.HttpClient.KeepAlive) * time.Second,     // 保持连接活跃
 			DualStack: true,
 		}).DialContext,
-		MaxIdleConns:           100,              // 最大空闲连接数
-		IdleConnTimeout:        90 * time.Second, // 空闲连接超时
-		TLSHandshakeTimeout:    20 * time.Second, // TLS握手超时
-		ExpectContinueTimeout:  5 * time.Second,  // 100-continue状态码的等待时间
-		ResponseHeaderTimeout:  60 * time.Second, // 响应头超时
-		MaxResponseHeaderBytes: 32 * 1024,        // 最大响应头大小
+		MaxIdleConns:           cfg.RequestSettings.HttpClient.MaxIdleConns,                                                    // 最大空闲连接数
+		IdleConnTimeout:        time.Duration(cfg.RequestSettings.HttpClient.IdleConnTimeout) * time.Second,                  // 空闲连接超时
+		TLSHandshakeTimeout:    time.Duration(cfg.RequestSettings.HttpClient.TLSHandshakeTimeout) * time.Second,              // TLS握手超时
+		ExpectContinueTimeout:  time.Duration(cfg.RequestSettings.HttpClient.ExpectContinueTimeout) * time.Second,            // 100-continue状态码的等待时间
+		ResponseHeaderTimeout:  time.Duration(cfg.RequestSettings.HttpClient.ResponseHeaderTimeout) * time.Second,            // 响应头超时
+		MaxResponseHeaderBytes: int64(cfg.RequestSettings.HttpClient.MaxResponseHeaderBytes),                                  // 最大响应头大小
 	}
 
 	return &http.Client{
@@ -144,18 +147,21 @@ func CreateInferenceModelClient(requestTimeout time.Duration) *http.Client {
 // CreateStandardModelClient 创建适用于普通模型的HTTP客户端
 // 使用标准的超时时间和连接设置
 func CreateStandardModelClient(requestTimeout time.Duration) *http.Client {
+	// 获取配置
+	cfg := config.GetConfig()
+
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   time.Duration(cfg.RequestSettings.HttpClient.ConnectTimeout) * time.Second,
+			KeepAlive: time.Duration(cfg.RequestSettings.HttpClient.KeepAlive) * time.Second,
 			DualStack: true,
 		}).DialContext,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		ResponseHeaderTimeout: 300 * time.Second,
+		MaxIdleConns:          cfg.RequestSettings.HttpClient.MaxIdleConns,
+		IdleConnTimeout:       time.Duration(cfg.RequestSettings.HttpClient.IdleConnTimeout) * time.Second,
+		TLSHandshakeTimeout:   time.Duration(cfg.RequestSettings.HttpClient.TLSHandshakeTimeout) * time.Second,
+		ExpectContinueTimeout: time.Duration(cfg.RequestSettings.HttpClient.ExpectContinueTimeout) * time.Second,
+		ResponseHeaderTimeout: time.Duration(cfg.RequestSettings.HttpClient.ResponseHeaderTimeout) * time.Second,
 	}
 
 	return &http.Client{
