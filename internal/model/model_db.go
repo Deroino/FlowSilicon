@@ -34,10 +34,9 @@ func InitModelDB(dbPath string) error {
 
 	// 设置连接池参数
 	modelDB.SetMaxOpenConns(1)                   // 限制最大连接数为1，以减少并发问题
-	// 获取配置
-	cfg := config.GetConfig()
-	modelDB.SetMaxIdleConns(cfg.RequestSettings.Database.MaxIdleConns)                                                          // 最大空闲连接数
-	modelDB.SetConnMaxLifetime(time.Duration(cfg.RequestSettings.Database.ConnMaxLifetime) * time.Minute) // 连接最大生命周期
+	// 使用默认值，避免在初始化时获取配置导致的循环依赖
+	modelDB.SetMaxIdleConns(1)                   // 最大空闲连接数（默认值）
+	modelDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大生命周期（默认值）
 
 	// 启用WAL模式和关闭同步模式，提高性能，降低锁定风险
 	_, err = modelDB.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")
@@ -154,6 +153,26 @@ func InitModelDB(dbPath string) error {
 
 	logger.Info("模型表初始化成功")
 	return nil
+}
+
+// UpdateModelDBConnectionParams 更新模型数据库连接参数（在配置加载后调用）
+func UpdateModelDBConnectionParams() {
+	if modelDB == nil {
+		return
+	}
+	
+	cfg := config.GetConfig()
+	if cfg == nil {
+		return
+	}
+	
+	// 更新模型数据库连接参数
+	modelDB.SetMaxIdleConns(cfg.RequestSettings.Database.MaxIdleConns)
+	modelDB.SetConnMaxLifetime(time.Duration(cfg.RequestSettings.Database.ConnMaxLifetime) * time.Minute)
+	
+	logger.Info("已更新模型数据库连接参数: MaxIdleConns=%d, ConnMaxLifetime=%d分钟", 
+		cfg.RequestSettings.Database.MaxIdleConns, 
+		cfg.RequestSettings.Database.ConnMaxLifetime)
 }
 
 // CloseModelDB 关闭模型数据库

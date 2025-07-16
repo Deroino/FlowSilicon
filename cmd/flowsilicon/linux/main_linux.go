@@ -147,6 +147,10 @@ func main() {
 		logger.Info("已从数据库更新应用标题为: %s", cfg.App.Title)
 	}
 
+	// 在配置加载完成后更新数据库连接参数
+	config.UpdateDBConnectionParams()
+	model.UpdateModelDBConnectionParams()
+
 	// 添加调试信息
 	logger.Info("配置值 - AutoUpdateInterval: %d, StatsRefreshInterval: %d, RateRefreshInterval: %d",
 		cfg.App.AutoUpdateInterval, cfg.App.StatsRefreshInterval, cfg.App.RateRefreshInterval)
