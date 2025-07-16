@@ -68,14 +68,15 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 			// 检查是否是推理模型
 			if isReasonModel(model) {
 				// 检查并设置合适的max_tokens值
+				cfg := config.GetConfig()
 				if maxTokens, exists := requestData["max_tokens"]; !exists {
-					// 如果未设置max_tokens，设置默认值16000
-					requestData["max_tokens"] = 16000
-					logger.Info("为推理模型%s自动设置max_tokens=16000", model)
+					// 如果未设置max_tokens，使用配置的默认值
+					requestData["max_tokens"] = cfg.RequestSettings.Defaults.MaxTokens
+					logger.Info("为推理模型%s自动设置max_tokens=%d", model, cfg.RequestSettings.Defaults.MaxTokens)
 				} else if maxTokenValue, ok := maxTokens.(float64); ok && maxTokenValue < 1000 {
-					// 如果设置了但值太小，调整到更合理的值
-					requestData["max_tokens"] = 16000
-					logger.Info("推理模型%s检测到过小的max_tokens值(%v)，自动调整为16000", model, maxTokenValue)
+					// 如果设置了但值太小，调整到配置的默认值
+					requestData["max_tokens"] = cfg.RequestSettings.Defaults.MaxTokens
+					logger.Info("推理模型%s检测到过小的max_tokens值(%v)，自动调整为%d", model, maxTokenValue, cfg.RequestSettings.Defaults.MaxTokens)
 				}
 
 				// 确保流式输出
@@ -108,14 +109,15 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 			// 检查是否是推理模型
 			if isReasonModel(model) {
 				// 检查并设置合适的max_tokens值
+				cfg := config.GetConfig()
 				if maxTokens, exists := requestData["max_tokens"]; !exists {
-					// 如果未设置max_tokens，设置默认值16000
-					requestData["max_tokens"] = 16000
-					logger.Info("为推理模型%s自动设置max_tokens=16000", model)
+					// 如果未设置max_tokens，使用配置的默认值
+					requestData["max_tokens"] = cfg.RequestSettings.Defaults.MaxTokens
+					logger.Info("为推理模型%s自动设置max_tokens=%d", model, cfg.RequestSettings.Defaults.MaxTokens)
 				} else if maxTokenValue, ok := maxTokens.(float64); ok && maxTokenValue < 1000 {
-					// 如果设置了但值太小，调整到更合理的值
-					requestData["max_tokens"] = 16000
-					logger.Info("推理模型%s检测到过小的max_tokens值(%v)，自动调整为16000", model, maxTokenValue)
+					// 如果设置了但值太小，调整到配置的默认值
+					requestData["max_tokens"] = cfg.RequestSettings.Defaults.MaxTokens
+					logger.Info("推理模型%s检测到过小的max_tokens值(%v)，自动调整为%d", model, maxTokenValue, cfg.RequestSettings.Defaults.MaxTokens)
 				}
 
 				// 确保流式输出
@@ -200,7 +202,8 @@ func TransformRequestBody(body []byte, path string) ([]byte, error) {
 		}
 
 		if _, ok := requestData["size"]; !ok {
-			requestData["size"] = "1024x1024"
+			cfg := config.GetConfig()
+			requestData["size"] = cfg.RequestSettings.Defaults.ImageSize
 		}
 
 		if _, ok := requestData["guidance_scale"]; !ok {

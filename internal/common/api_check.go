@@ -305,7 +305,7 @@ func TestRerankAPI(apiKey string) (bool, string, error) {
 		},
 		"top_n":              4,
 		"return_documents":   false,
-		"max_chunks_per_doc": 1024,
+		"max_chunks_per_doc": config.GetConfig().RequestSettings.Defaults.MaxChunksPerDoc,
 		"overlap_tokens":     80,
 	}
 
