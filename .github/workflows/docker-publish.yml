@@ -5,7 +5,7 @@ on:
     types: [published]
   push:
     branches:
-      - feature/patch-improvements
+      - main
   workflow_dispatch:
 
 permissions:
@@ -27,8 +27,8 @@ jobs:
       dockerhub-enable: true
       ghcr-enable: true
       image-names: |
-        docker.io/papillon0121/lightrag-modifyed
-        ghcr.io/deroino/lightrag-modifyed
+        docker.io/papillon0121/flowsilicon
+        ghcr.io/deroino/flowsilicon
       
       # Tag rules for different events
       tag-rules: |
