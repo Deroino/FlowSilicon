@@ -8,6 +8,7 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"flowsilicon/internal/config"
 	"flowsilicon/internal/logger"
 	"flowsilicon/internal/model"
 	"flowsilicon/pkg/utils"
