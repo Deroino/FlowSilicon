@@ -155,7 +155,7 @@ func CreateStandardModelClient(requestTimeout time.Duration) *http.Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		ResponseHeaderTimeout: 20 * time.Second,
+		ResponseHeaderTimeout: 300 * time.Second,
 	}
 
 	return &http.Client{
