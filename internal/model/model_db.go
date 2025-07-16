@@ -34,8 +34,10 @@ func InitModelDB(dbPath string) error {
 
 	// 设置连接池参数
 	modelDB.SetMaxOpenConns(1)                   // 限制最大连接数为1，以减少并发问题
-	modelDB.SetMaxIdleConns(1)                   // 最大空闲连接数
-	modelDB.SetConnMaxLifetime(30 * time.Minute) // 连接最大生命周期
+	// 获取配置
+	cfg := config.GetConfig()
+	modelDB.SetMaxIdleConns(cfg.RequestSettings.Database.MaxIdleConns)                                                          // 最大空闲连接数
+	modelDB.SetConnMaxLifetime(time.Duration(cfg.RequestSettings.Database.ConnMaxLifetime) * time.Minute) // 连接最大生命周期
 
 	// 启用WAL模式和关闭同步模式，提高性能，降低锁定风险
 	_, err = modelDB.Exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")

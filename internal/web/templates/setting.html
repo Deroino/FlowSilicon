@@ -378,6 +378,148 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- 请求设置 -->
+                            <div class="settings-section">
+                                <h5><i class="bi bi-gear"></i> 请求设置</h5>
+                                
+                                <!-- HTTP客户端设置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-cloud-arrow-down"></i> HTTP客户端设置</h6>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
+                                            <label for="response-header-timeout" class="form-label">响应头超时(秒)</label>
+                                            <input type="number" class="form-control" id="response-header-timeout" name="request_settings.http_client.response_header_timeout">
+                                            <div class="form-text">等待响应头的超时时间</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="tls-handshake-timeout" class="form-label">TLS握手超时(秒)</label>
+                                            <input type="number" class="form-control" id="tls-handshake-timeout" name="request_settings.http_client.tls_handshake_timeout">
+                                            <div class="form-text">TLS握手的超时时间</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="idle-conn-timeout" class="form-label">空闲连接超时(秒)</label>
+                                            <input type="number" class="form-control" id="idle-conn-timeout" name="request_settings.http_client.idle_conn_timeout">
+                                            <div class="form-text">空闲连接保持时间</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="expect-continue-timeout" class="form-label">100-continue超时(秒)</label>
+                                            <input type="number" class="form-control" id="expect-continue-timeout" name="request_settings.http_client.expect_continue_timeout">
+                                            <div class="form-text">等待100-continue响应的时间</div>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
+                                            <label for="max-idle-conns" class="form-label">最大空闲连接数</label>
+                                            <input type="number" class="form-control" id="max-idle-conns" name="request_settings.http_client.max_idle_conns">
+                                            <div class="form-text">全局最大空闲连接数</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="max-idle-conns-per-host" class="form-label">每个主机最大空闲连接数</label>
+                                            <input type="number" class="form-control" id="max-idle-conns-per-host" name="request_settings.http_client.max_idle_conns_per_host">
+                                            <div class="form-text">单个主机最大空闲连接数</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="keep-alive" class="form-label">保持连接时间(秒)</label>
+                                            <input type="number" class="form-control" id="keep-alive" name="request_settings.http_client.keep_alive">
+                                            <div class="form-text">TCP保持连接时间</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="connect-timeout" class="form-label">连接超时(秒)</label>
+                                            <input type="number" class="form-control" id="connect-timeout" name="request_settings.http_client.connect_timeout">
+                                            <div class="form-text">建立连接的超时时间</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 代理处理设置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-cpu"></i> 代理处理设置</h6>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
+                                            <label for="inference-timeout" class="form-label">推理模型超时(分钟)</label>
+                                            <input type="number" class="form-control" id="inference-timeout" name="request_settings.proxy_handler.inference_timeout">
+                                            <div class="form-text">推理模型的请求超时时间</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="standard-timeout" class="form-label">普通模型超时(分钟)</label>
+                                            <input type="number" class="form-control" id="standard-timeout" name="request_settings.proxy_handler.standard_timeout">
+                                            <div class="form-text">普通模型的请求超时时间</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="stream-timeout" class="form-label">流式超时(分钟)</label>
+                                            <input type="number" class="form-control" id="stream-timeout" name="request_settings.proxy_handler.stream_timeout">
+                                            <div class="form-text">流式响应的超时时间</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="heartbeat-interval" class="form-label">心跳间隔(秒)</label>
+                                            <input type="number" class="form-control" id="heartbeat-interval" name="request_settings.proxy_handler.heartbeat_interval">
+                                            <div class="form-text">心跳包发送间隔</div>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
+                                            <label for="progress-interval" class="form-label">进度间隔(秒)</label>
+                                            <input type="number" class="form-control" id="progress-interval" name="request_settings.proxy_handler.progress_interval">
+                                            <div class="form-text">进度报告间隔</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="buffer-threshold" class="form-label">缓冲区阈值(字节)</label>
+                                            <input type="number" class="form-control" id="buffer-threshold" name="request_settings.proxy_handler.buffer_threshold">
+                                            <div class="form-text">缓冲区刷新阈值</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="max-flush-interval" class="form-label">最大刷新间隔(毫秒)</label>
+                                            <input type="number" class="form-control" id="max-flush-interval" name="request_settings.proxy_handler.max_flush_interval">
+                                            <div class="form-text">最大缓冲区刷新间隔</div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <label for="max-concurrency" class="form-label">最大并发数</label>
+                                            <input type="number" class="form-control" id="max-concurrency" name="request_settings.proxy_handler.max_concurrency">
+                                            <div class="form-text">最大并发连接数</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 数据库设置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-database"></i> 数据库设置</h6>
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="conn-max-lifetime" class="form-label">连接最大生命周期(分钟)</label>
+                                            <input type="number" class="form-control" id="conn-max-lifetime" name="request_settings.database.conn_max_lifetime">
+                                            <div class="form-text">数据库连接的最大生命周期</div>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="db-max-idle-conns" class="form-label">最大空闲连接数</label>
+                                            <input type="number" class="form-control" id="db-max-idle-conns" name="request_settings.database.max_idle_conns">
+                                            <div class="form-text">数据库最大空闲连接数</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 默认值设置 -->
+                                <div class="subsection">
+                                    <h6><i class="bi bi-sliders"></i> 默认值设置</h6>
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <label for="default-max-tokens" class="form-label">默认最大tokens</label>
+                                            <input type="number" class="form-control" id="default-max-tokens" name="request_settings.defaults.max_tokens">
+                                            <div class="form-text">默认的最大token数量</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="default-image-size" class="form-label">默认图片尺寸</label>
+                                            <input type="text" class="form-control" id="default-image-size" name="request_settings.defaults.image_size">
+                                            <div class="form-text">默认图片生成尺寸</div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <label for="max-chunks-per-doc" class="form-label">文档最大块数</label>
+                                            <input type="number" class="form-control" id="max-chunks-per-doc" name="request_settings.defaults.max_chunks_per_doc">
+                                            <div class="form-text">文档处理的最大块数</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </form>
                     </div>
                 </div>

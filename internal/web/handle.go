@@ -1213,6 +1213,88 @@ func handleSaveSettings(c *gin.Context) {
 		}
 	}
 
+	// 请求设置
+	if requestSettings, ok := configData["request_settings"].(map[string]interface{}); ok {
+		// HTTP客户端设置
+		if httpClient, ok := requestSettings["http_client"].(map[string]interface{}); ok {
+			if val, ok := httpClient["response_header_timeout"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.ResponseHeaderTimeout = int(val)
+			}
+			if val, ok := httpClient["tls_handshake_timeout"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.TLSHandshakeTimeout = int(val)
+			}
+			if val, ok := httpClient["idle_conn_timeout"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.IdleConnTimeout = int(val)
+			}
+			if val, ok := httpClient["expect_continue_timeout"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.ExpectContinueTimeout = int(val)
+			}
+			if val, ok := httpClient["max_idle_conns"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.MaxIdleConns = int(val)
+			}
+			if val, ok := httpClient["max_idle_conns_per_host"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.MaxIdleConnsPerHost = int(val)
+			}
+			if val, ok := httpClient["keep_alive"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.KeepAlive = int(val)
+			}
+			if val, ok := httpClient["connect_timeout"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.ConnectTimeout = int(val)
+			}
+			if val, ok := httpClient["max_response_header_bytes"].(float64); ok {
+				newConfig.RequestSettings.HttpClient.MaxResponseHeaderBytes = int(val)
+			}
+		}
+		// 代理处理设置
+		if proxyHandler, ok := requestSettings["proxy_handler"].(map[string]interface{}); ok {
+			if val, ok := proxyHandler["inference_timeout"].(float64); ok {
+				newConfig.RequestSettings.ProxyHandler.InferenceTimeout = int(val)
+			}
+			if val, ok := proxyHandler["standard_timeout"].(float64); ok {
+				newConfig.RequestSettings.ProxyHandler.StandardTimeout = int(val)
+			}
+			if val, ok := proxyHandler["stream_timeout"].(float64); ok {
+				newConfig.RequestSettings.ProxyHandler.StreamTimeout = int(val)
+			}
+			if val, ok := proxyHandler["heartbeat_interval"].(float64); ok {
+				newConfig.RequestSettings.ProxyHandler.HeartbeatInterval = int(val)
+			}
+			if val, ok := proxyHandler["progress_interval"].(float64); ok {
+				newConfig.RequestSettings.ProxyHandler.ProgressInterval = int(val)
+			}
+			if val, ok := proxyHandler["buffer_threshold"].(float64); ok {
+				newConfig.RequestSettings.ProxyHandler.BufferThreshold = int(val)
+			}
+			if val, ok := proxyHandler["max_flush_interval"].(float64); ok {
+				newConfig.RequestSettings.ProxyHandler.MaxFlushInterval = int(val)
+			}
+			if val, ok := proxyHandler["max_concurrency"].(float64); ok {
+				newConfig.RequestSettings.ProxyHandler.MaxConcurrency = int(val)
+			}
+		}
+		// 数据库设置
+		if database, ok := requestSettings["database"].(map[string]interface{}); ok {
+			if val, ok := database["conn_max_lifetime"].(float64); ok {
+				newConfig.RequestSettings.Database.ConnMaxLifetime = int(val)
+			}
+			if val, ok := database["max_idle_conns"].(float64); ok {
+				newConfig.RequestSettings.Database.MaxIdleConns = int(val)
+			}
+		}
+		// 默认值设置
+		if defaults, ok := requestSettings["defaults"].(map[string]interface{}); ok {
+			if val, ok := defaults["max_tokens"].(float64); ok {
+				newConfig.RequestSettings.Defaults.MaxTokens = int(val)
+			}
+			if val, ok := defaults["image_size"].(string); ok {
+				newConfig.RequestSettings.Defaults.ImageSize = val
+			}
+			if val, ok := defaults["max_chunks_per_doc"].(float64); ok {
+				newConfig.RequestSettings.Defaults.MaxChunksPerDoc = int(val)
+			}
+		}
+	}
+
 	// 更新配置
 	config.UpdateConfig(&newConfig)
 

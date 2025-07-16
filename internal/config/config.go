@@ -84,6 +84,43 @@ type Config struct {
 		MaxSizeMB int    `mapstructure:"max_size_mb"` // 日志文件最大大小（MB）
 		Level     string `mapstructure:"level"`       // 日志等级（debug, info, warn, error, fatal）
 	} `mapstructure:"log"`
+	// 请求设置配置
+	RequestSettings struct {
+		// HTTP客户端设置
+		HttpClient struct {
+			ResponseHeaderTimeout  int `mapstructure:"response_header_timeout"`   // 响应头超时（秒）
+			TLSHandshakeTimeout    int `mapstructure:"tls_handshake_timeout"`     // TLS握手超时（秒）
+			IdleConnTimeout        int `mapstructure:"idle_conn_timeout"`         // 空闲连接超时（秒）
+			ExpectContinueTimeout  int `mapstructure:"expect_continue_timeout"`   // 100-continue超时（秒）
+			MaxIdleConns           int `mapstructure:"max_idle_conns"`            // 最大空闲连接数
+			MaxIdleConnsPerHost    int `mapstructure:"max_idle_conns_per_host"`   // 每个主机最大空闲连接数
+			KeepAlive              int `mapstructure:"keep_alive"`                // 保持连接时间（秒）
+			ConnectTimeout         int `mapstructure:"connect_timeout"`           // 连接超时（秒）
+			MaxResponseHeaderBytes int `mapstructure:"max_response_header_bytes"` // 最大响应头字节数
+		} `mapstructure:"http_client"`
+		// 代理处理设置
+		ProxyHandler struct {
+			InferenceTimeout  int `mapstructure:"inference_timeout"`   // 推理模型超时（分钟）
+			StandardTimeout   int `mapstructure:"standard_timeout"`    // 普通模型超时（分钟）
+			StreamTimeout     int `mapstructure:"stream_timeout"`      // 流式超时（分钟）
+			HeartbeatInterval int `mapstructure:"heartbeat_interval"`  // 心跳间隔（秒）
+			ProgressInterval  int `mapstructure:"progress_interval"`   // 进度间隔（秒）
+			BufferThreshold   int `mapstructure:"buffer_threshold"`    // 缓冲区阈值（字节）
+			MaxFlushInterval  int `mapstructure:"max_flush_interval"`  // 最大刷新间隔（毫秒）
+			MaxConcurrency    int `mapstructure:"max_concurrency"`     // 最大并发数
+		} `mapstructure:"proxy_handler"`
+		// 数据库设置
+		Database struct {
+			ConnMaxLifetime int `mapstructure:"conn_max_lifetime"` // 连接最大生命周期（分钟）
+			MaxIdleConns    int `mapstructure:"max_idle_conns"`    // 最大空闲连接数
+		} `mapstructure:"database"`
+		// 默认值设置
+		Defaults struct {
+			MaxTokens       int    `mapstructure:"max_tokens"`         // 默认最大tokens
+			ImageSize       string `mapstructure:"image_size"`         // 默认图片尺寸
+			MaxChunksPerDoc int    `mapstructure:"max_chunks_per_doc"` // 文档最大块数
+		} `mapstructure:"defaults"`
+	} `mapstructure:"request_settings"`
 }
 
 // ApiKey API密钥结构
@@ -149,6 +186,37 @@ func standardizeModelKeyStrategies() {
 
 // GetConfig 获取配置
 func GetConfig() *Config {
+	// 确保RequestSettings字段有默认值
+	if config != nil && config.RequestSettings.HttpClient.ResponseHeaderTimeout == 0 {
+		// 如果RequestSettings为空，设置默认值
+		config.RequestSettings.HttpClient.ResponseHeaderTimeout = 60
+		config.RequestSettings.HttpClient.TLSHandshakeTimeout = 30
+		config.RequestSettings.HttpClient.IdleConnTimeout = 90
+		config.RequestSettings.HttpClient.ExpectContinueTimeout = 1
+		config.RequestSettings.HttpClient.MaxIdleConns = 100
+		config.RequestSettings.HttpClient.MaxIdleConnsPerHost = 20
+		config.RequestSettings.HttpClient.KeepAlive = 30
+		config.RequestSettings.HttpClient.ConnectTimeout = 30
+		config.RequestSettings.HttpClient.MaxResponseHeaderBytes = 32768
+		
+		config.RequestSettings.ProxyHandler.InferenceTimeout = 60
+		config.RequestSettings.ProxyHandler.StandardTimeout = 10
+		config.RequestSettings.ProxyHandler.StreamTimeout = 10
+		config.RequestSettings.ProxyHandler.HeartbeatInterval = 10
+		config.RequestSettings.ProxyHandler.ProgressInterval = 10
+		config.RequestSettings.ProxyHandler.BufferThreshold = 1024
+		config.RequestSettings.ProxyHandler.MaxFlushInterval = 500
+		config.RequestSettings.ProxyHandler.MaxConcurrency = 50
+		
+		config.RequestSettings.Database.ConnMaxLifetime = 30
+		config.RequestSettings.Database.MaxIdleConns = 1
+		
+		config.RequestSettings.Defaults.MaxTokens = 16000
+		config.RequestSettings.Defaults.ImageSize = "1024x1024"
+		config.RequestSettings.Defaults.MaxChunksPerDoc = 1024
+		
+		logger.Info("已为配置设置RequestSettings默认值")
+	}
 
 	return config
 }
@@ -1346,7 +1414,39 @@ func EnsureDefaultConfig(dbPath string) error {
 				"HideIcon":false,
 				"DisabledModels":[]
 			},
-			"Log":{"MaxSizeMB":1, "Level":"warn"}
+			"Log":{"MaxSizeMB":1, "Level":"warn"},
+			"RequestSettings":{
+				"HttpClient":{
+					"ResponseHeaderTimeout":60,
+					"TLSHandshakeTimeout":30,
+					"IdleConnTimeout":90,
+					"ExpectContinueTimeout":1,
+					"MaxIdleConns":100,
+					"MaxIdleConnsPerHost":20,
+					"KeepAlive":30,
+					"ConnectTimeout":30,
+					"MaxResponseHeaderBytes":32768
+				},
+				"ProxyHandler":{
+					"InferenceTimeout":60,
+					"StandardTimeout":10,
+					"StreamTimeout":10,
+					"HeartbeatInterval":10,
+					"ProgressInterval":10,
+					"BufferThreshold":1024,
+					"MaxFlushInterval":500,
+					"MaxConcurrency":50
+				},
+				"Database":{
+					"ConnMaxLifetime":30,
+					"MaxIdleConns":1
+				},
+				"Defaults":{
+					"MaxTokens":16000,
+					"ImageSize":"1024x1024",
+					"MaxChunksPerDoc":1024
+				}
+			}
 		}`, version)
 
 		// 插入默认配置到数据库
