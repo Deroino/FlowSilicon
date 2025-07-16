@@ -3,7 +3,6 @@ FROM --platform=$BUILDPLATFORM golang:1.23.7-bookworm AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
 RUN go mod download
 COPY . .
 ARG TARGETARCH
