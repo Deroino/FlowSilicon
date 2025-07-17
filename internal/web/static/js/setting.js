@@ -146,6 +146,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 log: {
                     max_size_mb: getValue('log-max-size'),
                     level: getValue('log-level')
+                },
+                request_settings: {
+                    http_client: {
+                        response_header_timeout: getValue('response-header-timeout'),
+                        tls_handshake_timeout: getValue('tls-handshake-timeout'),
+                        idle_conn_timeout: getValue('idle-conn-timeout'),
+                        expect_continue_timeout: getValue('expect-continue-timeout'),
+                        max_idle_conns: getValue('max-idle-conns'),
+                        max_idle_conns_per_host: getValue('max-idle-conns-per-host'),
+                        keep_alive: getValue('keep-alive'),
+                        connect_timeout: getValue('connect-timeout')
+                    },
+                    proxy_handler: {
+                        inference_timeout: getValue('inference-timeout'),
+                        standard_timeout: getValue('standard-timeout'),
+                        stream_timeout: getValue('stream-timeout'),
+                        heartbeat_interval: getValue('heartbeat-interval'),
+                        progress_interval: getValue('progress-interval'),
+                        buffer_threshold: getValue('buffer-threshold'),
+                        max_flush_interval: getValue('max-flush-interval'),
+                        max_concurrency: getValue('max-concurrency')
+                    },
+                    database: {
+                        conn_max_lifetime: getValue('conn-max-lifetime'),
+                        max_idle_conns: getValue('db-max-idle-conns')
+                    },
+                    defaults: {
+                        max_tokens: getValue('default-max-tokens'),
+                        image_size: getValue('default-image-size'),
+                        max_chunks_per_doc: getValue('max-chunks-per-doc')
+                    }
                 }
             };
 
@@ -249,6 +280,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 log: {
                     max_size_mb: getValue('log-max-size'),
                     level: getValue('log-level')
+                },
+                request_settings: {
+                    http_client: {
+                        response_header_timeout: getValue('response-header-timeout'),
+                        tls_handshake_timeout: getValue('tls-handshake-timeout'),
+                        idle_conn_timeout: getValue('idle-conn-timeout'),
+                        expect_continue_timeout: getValue('expect-continue-timeout'),
+                        max_idle_conns: getValue('max-idle-conns'),
+                        max_idle_conns_per_host: getValue('max-idle-conns-per-host'),
+                        keep_alive: getValue('keep-alive'),
+                        connect_timeout: getValue('connect-timeout')
+                    },
+                    proxy_handler: {
+                        inference_timeout: getValue('inference-timeout'),
+                        standard_timeout: getValue('standard-timeout'),
+                        stream_timeout: getValue('stream-timeout'),
+                        heartbeat_interval: getValue('heartbeat-interval'),
+                        progress_interval: getValue('progress-interval'),
+                        buffer_threshold: getValue('buffer-threshold'),
+                        max_flush_interval: getValue('max-flush-interval'),
+                        max_concurrency: getValue('max-concurrency')
+                    },
+                    database: {
+                        conn_max_lifetime: getValue('conn-max-lifetime'),
+                        max_idle_conns: getValue('db-max-idle-conns')
+                    },
+                    defaults: {
+                        max_tokens: getValue('default-max-tokens'),
+                        image_size: getValue('default-image-size'),
+                        max_chunks_per_doc: getValue('max-chunks-per-doc')
+                    }
                 }
             };
 
@@ -712,6 +774,46 @@ function populateForm(config) {
     // 日志设置
     setValue('log-max-size', config.log.max_size_mb);
     setValue('log-level', config.log.level || 'warn'); // 设置日志等级，默认为warn
+    
+    // 请求设置
+    if (config.request_settings) {
+        // HTTP客户端设置
+        if (config.request_settings.http_client) {
+            setValue('response-header-timeout', config.request_settings.http_client.response_header_timeout);
+            setValue('tls-handshake-timeout', config.request_settings.http_client.tls_handshake_timeout);
+            setValue('idle-conn-timeout', config.request_settings.http_client.idle_conn_timeout);
+            setValue('expect-continue-timeout', config.request_settings.http_client.expect_continue_timeout);
+            setValue('max-idle-conns', config.request_settings.http_client.max_idle_conns);
+            setValue('max-idle-conns-per-host', config.request_settings.http_client.max_idle_conns_per_host);
+            setValue('keep-alive', config.request_settings.http_client.keep_alive);
+            setValue('connect-timeout', config.request_settings.http_client.connect_timeout);
+        }
+        
+        // 代理处理设置
+        if (config.request_settings.proxy_handler) {
+            setValue('inference-timeout', config.request_settings.proxy_handler.inference_timeout);
+            setValue('standard-timeout', config.request_settings.proxy_handler.standard_timeout);
+            setValue('stream-timeout', config.request_settings.proxy_handler.stream_timeout);
+            setValue('heartbeat-interval', config.request_settings.proxy_handler.heartbeat_interval);
+            setValue('progress-interval', config.request_settings.proxy_handler.progress_interval);
+            setValue('buffer-threshold', config.request_settings.proxy_handler.buffer_threshold);
+            setValue('max-flush-interval', config.request_settings.proxy_handler.max_flush_interval);
+            setValue('max-concurrency', config.request_settings.proxy_handler.max_concurrency);
+        }
+        
+        // 数据库设置
+        if (config.request_settings.database) {
+            setValue('conn-max-lifetime', config.request_settings.database.conn_max_lifetime);
+            setValue('db-max-idle-conns', config.request_settings.database.max_idle_conns);
+        }
+        
+        // 默认值设置
+        if (config.request_settings.defaults) {
+            setValue('default-max-tokens', config.request_settings.defaults.max_tokens);
+            setValue('default-image-size', config.request_settings.defaults.image_size);
+            setValue('max-chunks-per-doc', config.request_settings.defaults.max_chunks_per_doc);
+        }
+    }
 }
 
 /**
@@ -1147,6 +1249,37 @@ function saveSettings(callback) {
         log: {
             max_size_mb: getValue('log-max-size'),
             level: getValue('log-level')
+        },
+        request_settings: {
+            http_client: {
+                response_header_timeout: getValue('response-header-timeout'),
+                tls_handshake_timeout: getValue('tls-handshake-timeout'),
+                idle_conn_timeout: getValue('idle-conn-timeout'),
+                expect_continue_timeout: getValue('expect-continue-timeout'),
+                max_idle_conns: getValue('max-idle-conns'),
+                max_idle_conns_per_host: getValue('max-idle-conns-per-host'),
+                keep_alive: getValue('keep-alive'),
+                connect_timeout: getValue('connect-timeout')
+            },
+            proxy_handler: {
+                inference_timeout: getValue('inference-timeout'),
+                standard_timeout: getValue('standard-timeout'),
+                stream_timeout: getValue('stream-timeout'),
+                heartbeat_interval: getValue('heartbeat-interval'),
+                progress_interval: getValue('progress-interval'),
+                buffer_threshold: getValue('buffer-threshold'),
+                max_flush_interval: getValue('max-flush-interval'),
+                max_concurrency: getValue('max-concurrency')
+            },
+            database: {
+                conn_max_lifetime: getValue('conn-max-lifetime'),
+                max_idle_conns: getValue('db-max-idle-conns')
+            },
+            defaults: {
+                max_tokens: getValue('default-max-tokens'),
+                image_size: getValue('default-image-size'),
+                max_chunks_per_doc: getValue('max-chunks-per-doc')
+            }
         }
     };
     
@@ -1576,6 +1709,14 @@ function mergeConfigs(currentConfig, importedConfig) {
             result.log = {};
         }
         deepMerge(result.log, importedConfig.log);
+    }
+    
+    // 请求设置
+    if (importedConfig.request_settings) {
+        if (!result.request_settings) {
+            result.request_settings = {};
+        }
+        deepMerge(result.request_settings, importedConfig.request_settings);
     }
     
     // 跳过导出相关的元数据字段
