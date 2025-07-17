@@ -969,6 +969,37 @@ func handleGetSettings(c *gin.Context) {
 			"max_size_mb": cfg.Log.MaxSizeMB,
 			"level":       cfg.Log.Level,
 		},
+		"request_settings": gin.H{
+			"http_client": gin.H{
+				"response_header_timeout":   cfg.RequestSettings.HttpClient.ResponseHeaderTimeout,
+				"tls_handshake_timeout":     cfg.RequestSettings.HttpClient.TLSHandshakeTimeout,
+				"idle_conn_timeout":         cfg.RequestSettings.HttpClient.IdleConnTimeout,
+				"expect_continue_timeout":   cfg.RequestSettings.HttpClient.ExpectContinueTimeout,
+				"max_idle_conns":            cfg.RequestSettings.HttpClient.MaxIdleConns,
+				"max_idle_conns_per_host":   cfg.RequestSettings.HttpClient.MaxIdleConnsPerHost,
+				"keep_alive":                cfg.RequestSettings.HttpClient.KeepAlive,
+				"connect_timeout":           cfg.RequestSettings.HttpClient.ConnectTimeout,
+			},
+			"proxy_handler": gin.H{
+				"inference_timeout":  cfg.RequestSettings.ProxyHandler.InferenceTimeout,
+				"standard_timeout":   cfg.RequestSettings.ProxyHandler.StandardTimeout,
+				"stream_timeout":     cfg.RequestSettings.ProxyHandler.StreamTimeout,
+				"heartbeat_interval": cfg.RequestSettings.ProxyHandler.HeartbeatInterval,
+				"progress_interval":  cfg.RequestSettings.ProxyHandler.ProgressInterval,
+				"buffer_threshold":   cfg.RequestSettings.ProxyHandler.BufferThreshold,
+				"max_flush_interval": cfg.RequestSettings.ProxyHandler.MaxFlushInterval,
+				"max_concurrency":    cfg.RequestSettings.ProxyHandler.MaxConcurrency,
+			},
+			"database": gin.H{
+				"conn_max_lifetime": cfg.RequestSettings.Database.ConnMaxLifetime,
+				"max_idle_conns":    cfg.RequestSettings.Database.MaxIdleConns,
+			},
+			"defaults": gin.H{
+				"max_tokens":         cfg.RequestSettings.Defaults.MaxTokens,
+				"image_size":         cfg.RequestSettings.Defaults.ImageSize,
+				"max_chunks_per_doc": cfg.RequestSettings.Defaults.MaxChunksPerDoc,
+			},
+		},
 	}
 
 	// 返回配置信息
