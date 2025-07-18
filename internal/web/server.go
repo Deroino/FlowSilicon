@@ -26,6 +26,9 @@ var staticFS embed.FS
 
 // SetupApiProxy 设置 API 代理路由
 func SetupApiProxy(router *gin.Engine) {
+	// 添加请求日志中间件
+	router.Use(proxy.RequestLoggingMiddleware())
+	
 	// 代理所有 API 请求
 	router.Any("/api/*path", proxy.HandleApiProxy)
 
@@ -175,6 +178,9 @@ func SetupWebServer(router *gin.Engine) {
 
 	// 日志查看
 	router.GET("/logs", handleGetLogs)
+	
+	// 清空日志
+	router.POST("/logs/clear", handleClearLogs)
 
 	// 测试embeddings API
 	router.POST("/test-chat", handleTestChat)

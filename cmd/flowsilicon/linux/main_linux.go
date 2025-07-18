@@ -10,6 +10,7 @@ import (
 	"flowsilicon/internal/key"
 	"flowsilicon/internal/logger"
 	"flowsilicon/internal/model"
+	"flowsilicon/internal/proxy"
 	"flowsilicon/internal/web"
 	"fmt"
 	"os"
@@ -198,6 +199,10 @@ func main() {
 	// 启动API密钥管理器
 	key.StartKeyManager()
 	logger.Info("API密钥管理器已启动")
+
+	// 启动性能报告器
+	proxy.StartPerformanceReporter()
+	logger.Info("性能监控报告器已启动")
 
 	// 输出模型策略配置
 	logModelStrategies()

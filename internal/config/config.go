@@ -100,14 +100,15 @@ type Config struct {
 		} `mapstructure:"http_client"`
 		// 代理处理设置
 		ProxyHandler struct {
-			InferenceTimeout  int `mapstructure:"inference_timeout"`   // 推理模型超时（分钟）
-			StandardTimeout   int `mapstructure:"standard_timeout"`    // 普通模型超时（分钟）
-			StreamTimeout     int `mapstructure:"stream_timeout"`      // 流式超时（分钟）
-			HeartbeatInterval int `mapstructure:"heartbeat_interval"`  // 心跳间隔（秒）
-			ProgressInterval  int `mapstructure:"progress_interval"`   // 进度间隔（秒）
-			BufferThreshold   int `mapstructure:"buffer_threshold"`    // 缓冲区阈值（字节）
-			MaxFlushInterval  int `mapstructure:"max_flush_interval"`  // 最大刷新间隔（毫秒）
-			MaxConcurrency    int `mapstructure:"max_concurrency"`     // 最大并发数
+			InferenceTimeout  int  `mapstructure:"inference_timeout"`   // 推理模型超时（分钟）
+			StandardTimeout   int  `mapstructure:"standard_timeout"`    // 普通模型超时（分钟）
+			StreamTimeout     int  `mapstructure:"stream_timeout"`      // 流式超时（分钟）
+			HeartbeatInterval int  `mapstructure:"heartbeat_interval"`  // 心跳间隔（秒）
+			ProgressInterval  int  `mapstructure:"progress_interval"`   // 进度间隔（秒）
+			BufferThreshold   int  `mapstructure:"buffer_threshold"`    // 缓冲区阈值（字节）
+			MaxFlushInterval  int  `mapstructure:"max_flush_interval"`  // 最大刷新间隔（毫秒）
+			MaxConcurrency    int  `mapstructure:"max_concurrency"`     // 最大并发数
+			UseFakeStreaming  bool `mapstructure:"use_fake_streaming"`  // 是否使用假流式返回
 		} `mapstructure:"proxy_handler"`
 		// 数据库设置
 		Database struct {

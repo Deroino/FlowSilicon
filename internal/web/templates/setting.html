@@ -478,6 +478,15 @@
                                             <input type="number" class="form-control" id="max-concurrency" name="request_settings.proxy_handler.max_concurrency">
                                             <div class="form-text">最大并发连接数</div>
                                         </div>
+                                        <div class="col-md-3 mb-3">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" id="use-fake-streaming" name="request_settings.proxy_handler.use_fake_streaming">
+                                                <label class="form-check-label" for="use-fake-streaming">
+                                                    使用假流式返回
+                                                </label>
+                                            </div>
+                                            <div class="form-text">启用假流式输出，将调用非流式接口并模拟流式返回</div>
+                                        </div>
                                     </div>
                                 </div>
 

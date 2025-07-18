@@ -2139,6 +2139,31 @@ function hideLogViewer() {
     document.getElementById('log-viewer').style.display = 'none';
 }
 
+// 清空日志
+function clearLogs() {
+    if (confirm('确定要清空所有日志吗？此操作不可撤销。')) {
+        fetch('/logs/clear', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('日志清空成功', 'success');
+                // 如果日志查看器是打开的，刷新显示
+                if (document.getElementById('log-viewer').style.display === 'block') {
+                    loadLogs();
+                }
+            } else {
+                showToast('清空日志失败: ' + (data.message || '未知错误'), 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error clearing logs:', error);
+            showToast('清空日志失败: ' + error.message, 'error');
+        });
+    }
+}
+
 // 更新API地址显示
 function updateApiEndpoints() {
     const baseUrl = window.location.origin;
@@ -2898,6 +2923,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // 添加查看日志按钮事件
     document.getElementById('view-logs').addEventListener('click', function() {
         showLogViewer();
+    });
+    
+    // 添加清空日志按钮事件
+    document.getElementById('clear-logs').addEventListener('click', function() {
+        clearLogs();
     });
     
     // 添加关闭日志查看器事件

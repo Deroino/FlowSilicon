@@ -401,6 +401,40 @@ func handleGetLogs(c *gin.Context) {
 	}
 }
 
+// handleClearLogs 处理清空日志的请求
+func handleClearLogs(c *gin.Context) {
+	// 日志文件路径
+	logFilePath := "logs/app.log"
+	
+	// 检查文件是否存在
+	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "日志文件不存在，无需清空",
+		})
+		return
+	}
+	
+	// 清空日志文件（保留文件但清空内容）
+	err := os.Truncate(logFilePath, 0)
+	if err != nil {
+		logger.Error("清空日志文件失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("清空日志文件失败: %v", err),
+		})
+		return
+	}
+	
+	// 记录清空日志的操作
+	logger.Info("日志文件已被清空")
+	
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "日志清空成功",
+	})
+}
+
 // CustomLogger 自定义Gin日志中间件
 func CustomLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -989,6 +1023,7 @@ func handleGetSettings(c *gin.Context) {
 				"buffer_threshold":   cfg.RequestSettings.ProxyHandler.BufferThreshold,
 				"max_flush_interval": cfg.RequestSettings.ProxyHandler.MaxFlushInterval,
 				"max_concurrency":    cfg.RequestSettings.ProxyHandler.MaxConcurrency,
+				"use_fake_streaming": cfg.RequestSettings.ProxyHandler.UseFakeStreaming,
 			},
 			"database": gin.H{
 				"conn_max_lifetime": cfg.RequestSettings.Database.ConnMaxLifetime,
@@ -1301,6 +1336,9 @@ func handleSaveSettings(c *gin.Context) {
 			}
 			if val, ok := proxyHandler["max_concurrency"].(float64); ok {
 				newConfig.RequestSettings.ProxyHandler.MaxConcurrency = int(val)
+			}
+			if val, ok := proxyHandler["use_fake_streaming"].(bool); ok {
+				newConfig.RequestSettings.ProxyHandler.UseFakeStreaming = val
 			}
 		}
 		// 数据库设置

@@ -166,7 +166,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         progress_interval: getValue('progress-interval'),
                         buffer_threshold: getValue('buffer-threshold'),
                         max_flush_interval: getValue('max-flush-interval'),
-                        max_concurrency: getValue('max-concurrency')
+                        max_concurrency: getValue('max-concurrency'),
+                        use_fake_streaming: getCheckbox('use-fake-streaming')
                     },
                     database: {
                         conn_max_lifetime: getValue('conn-max-lifetime'),
@@ -300,7 +301,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         progress_interval: getValue('progress-interval'),
                         buffer_threshold: getValue('buffer-threshold'),
                         max_flush_interval: getValue('max-flush-interval'),
-                        max_concurrency: getValue('max-concurrency')
+                        max_concurrency: getValue('max-concurrency'),
+                        use_fake_streaming: getCheckbox('use-fake-streaming')
                     },
                     database: {
                         conn_max_lifetime: getValue('conn-max-lifetime'),
@@ -799,6 +801,7 @@ function populateForm(config) {
             setValue('buffer-threshold', config.request_settings.proxy_handler.buffer_threshold);
             setValue('max-flush-interval', config.request_settings.proxy_handler.max_flush_interval);
             setValue('max-concurrency', config.request_settings.proxy_handler.max_concurrency);
+            setCheckbox('use-fake-streaming', config.request_settings.proxy_handler.use_fake_streaming);
         }
         
         // 数据库设置
