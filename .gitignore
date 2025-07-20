@@ -8,4 +8,4 @@
 
 # Go特定的忽略项
 *.exe
-*.test
+*.testdata/
