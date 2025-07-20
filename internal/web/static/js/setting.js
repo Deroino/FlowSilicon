@@ -167,6 +167,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         buffer_threshold: getValue('buffer-threshold'),
                         max_flush_interval: getValue('max-flush-interval'),
                         max_concurrency: getValue('max-concurrency'),
+                        use_fake_streaming: getCheckbox('use-fake-streaming'),
                         use_fake_streaming: getCheckbox('use-fake-streaming')
                     },
                     database: {
@@ -302,6 +303,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         buffer_threshold: getValue('buffer-threshold'),
                         max_flush_interval: getValue('max-flush-interval'),
                         max_concurrency: getValue('max-concurrency'),
+                        use_fake_streaming: getCheckbox('use-fake-streaming'),
                         use_fake_streaming: getCheckbox('use-fake-streaming')
                     },
                     database: {
@@ -1168,6 +1170,31 @@ function getValue(id) {
         return element.value === '' ? 0 : Number(element.value);
     } else {
         return element.value;
+    }
+}
+
+/**
+ * 获取复选框的值
+ * @param {string} id - 元素id
+ * @returns {boolean}
+ */
+function getCheckbox(id) {
+    const element = document.getElementById(id);
+    if (element && element.type === 'checkbox') {
+        return element.checked;
+    }
+    return false;
+}
+
+/**
+ * 设置复选框的值
+ * @param {string} id - 元素id
+ * @param {any} value - 要设置的值
+ */
+function setCheckbox(id, value) {
+    const element = document.getElementById(id);
+    if (element && element.type === 'checkbox') {
+        element.checked = Boolean(value);
     }
 }
 
