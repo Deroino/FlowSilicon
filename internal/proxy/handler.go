@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 )
@@ -1109,7 +1110,7 @@ func handleOpenAIStreamRequest(c *gin.Context, targetURL string, transformedBody
 			rl.Error("流式请求返回非200状态码: %d, 但响应体为空", resp.StatusCode)
 			errBody = []byte(fmt.Sprintf("服务器返回 %d 状态码，但未提供具体错误信息", resp.StatusCode))
 		} else {
-			rl.Error("流式请求返回非200状态码: %d, 响应: %s", resp.StatusCode, string(errBody))
+			rl.Error("流式请求返回非200状态码: %d, 响应: %s", resp.StatusCode, logger.TruncateContent(string(errBody), 30))
 		}
 
 		// 尝试解析JSON错误消息
@@ -1236,7 +1237,7 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 	// --- 增强日志：记录请求详情 ---
 	
 	rl.Info("向外部 API 发送请求 -> URL: %s, Method: %s, Body: %s",
-		targetURL, req.Method, string(transformedBody))
+		targetURL, req.Method, logger.TruncateContent(string(transformedBody), 30))
 	// --------------------------
 
 	// 发送请求
@@ -1259,10 +1260,10 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 			// 根据成功或失败记录不同级别的日志
 			if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 				rl.Info("收到外部 API 响应 -> URL: %s, Status: %d, Body: %s",
-					targetURL, resp.StatusCode, string(responseBodyBytes))
+					targetURL, resp.StatusCode, logger.TruncateContent(string(responseBodyBytes), 30))
 			} else {
 				rl.Warn("收到外部 API 错误响应 -> URL: %s, Status: %d, Headers: %s, Body: %s",
-					targetURL, resp.StatusCode, string(responseHeaders), string(responseBodyBytes))
+					targetURL, resp.StatusCode, logger.TruncateContent(string(responseHeaders), 30), logger.TruncateContent(string(responseBodyBytes), 30))
 			}
 		}
 	}
@@ -1289,6 +1290,19 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 			"error": fmt.Sprintf("Failed to read response body: %v", err),
 		})
 		return false, err
+	}
+
+	// 检查并转换编码
+	if !utf8.Valid(respBody) {
+		rl.Warn("检测到非UTF-8响应体，可能导致乱码。将返回错误信息。")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": map[string]interface{}{
+				"message": "The upstream API returned a response with invalid encoding.",
+				"type":    "invalid_response_error",
+				"code":    "encoding_error",
+			},
+		})
+		return false, fmt.Errorf("invalid encoding from upstream API")
 	}
 
 	// 检查响应状态码
@@ -1468,7 +1482,7 @@ func HandleModelsRequest(c *gin.Context, apiKey string) {
 
 	// 如果API返回错误，直接将错误传递给客户端
 	if resp.StatusCode != http.StatusOK {
-		rl.Error("API返回错误，状态码: %d, 响应: %s", resp.StatusCode, string(respBody))
+		rl.Error("API返回错误，状态码: %d, 响应: %s", resp.StatusCode, logger.TruncateContent(string(respBody), 30))
 		c.Status(resp.StatusCode)
 		c.Writer.Write(respBody)
 		return
@@ -2233,9 +2247,10 @@ func convertToFakeStream(c *gin.Context, responseBody []byte) {
 	}
 	
 	// 按字符分割发送内容
+	runes := []rune(content)
 	chunkSize := 3
 	delay := 10 * time.Millisecond
-	for i := 0; i < len(content); i += chunkSize {
+	for i := 0; i < len(runes); i += chunkSize {
 		// 检查客户端是否断开连接
 		select {
 		case <-c.Request.Context().Done():
@@ -2245,11 +2260,11 @@ func convertToFakeStream(c *gin.Context, responseBody []byte) {
 		}
 		
 		end := i + chunkSize
-		if end > len(content) {
-			end = len(content)
+		if end > len(runes) {
+			end = len(runes)
 		}
 		
-		chunk := content[i:end]
+		chunk := string(runes[i:end])
 		chunkData := map[string]interface{}{
 			"id":      id,
 			"object":  "chat.completion.chunk",
@@ -2435,10 +2450,10 @@ func forwardUserInfoRequest(c *gin.Context, targetURL string) {
 			// 根据成功或失败记录不同级别的日志
 			if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 				rl.Info("收到外部 API 响应 -> URL: %s, Status: %d, Body: %s",
-					targetURL, resp.StatusCode, string(responseBodyBytes))
+					targetURL, resp.StatusCode, logger.TruncateContent(string(responseBodyBytes), 30))
 			} else {
 				rl.Warn("收到外部 API 错误响应 -> URL: %s, Status: %d, Headers: %s, Body: %s",
-					targetURL, resp.StatusCode, string(responseHeaders), string(responseBodyBytes))
+					targetURL, resp.StatusCode, logger.TruncateContent(string(responseHeaders), 30), logger.TruncateContent(string(responseBodyBytes), 30))
 			}
 		}
 	}
