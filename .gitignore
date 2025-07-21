@@ -10,3 +10,4 @@
 *.exe
 *.testdata/
 flowsilicon.log
+run/
