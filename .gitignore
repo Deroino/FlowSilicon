@@ -9,3 +9,4 @@
 # Go特定的忽略项
 *.exe
 *.testdata/
+flowsilicon.log
