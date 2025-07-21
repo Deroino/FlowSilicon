@@ -7,8 +7,6 @@
 # set -x: 打印出所有被执行的命令
 set -ex
 
-# --- 固定变量 ---
-LOG_FILE="flowsilicon.log"
 
 echo "===== FlowSilicon 重启脚本 v2 开始 ====="
 
@@ -61,7 +59,7 @@ mkdir -p run
 tar -xzmf "${PACKAGE_PATH}" -C ./run
 
 # 启动
-nohup ./run/${PACKAGE_NAME}/start.sh > "${LOG_FILE}" 2>&1 &
+nohup ./run/${PACKAGE_NAME}/start.sh &
 
 # 获取新进程的PID并显示
 NEW_PID=$!
@@ -70,5 +68,5 @@ echo ""
 
 echo "===== FlowSilicon 重启脚本 v2 完成 ====="
 echo "新进程的 PID 是: ${NEW_PID}"
-echo "项目正在后台运行，日志输出到: ${LOG_FILE}"
-echo "您可以使用 'tail -f ${LOG_FILE}' 来实时查看日志。"
+echo "项目正在后台运行，日志输出到: logs/app.log"
+echo "您可以使用 'tail -f logs/app.log' 来实时查看日志。"

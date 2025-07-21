@@ -30,9 +30,18 @@ bash build_linux.sh
 2.  **运行程序**:
     执行解压后目录中的启动脚本。
     ```bash
-    # 前台启动
+    # 前台启动 (日志会直接打印在控制台)
     ./run/flowsilicon-linux-amd64/start.sh
 
-    # 后台启动
+    # 后台启动 (推荐)
     nohup ./run/flowsilicon-linux-amd64/start.sh &
     ```
+
+3.  **查看日志**:
+    项目内置了日志系统，所有级别的日志都会被自动记录到 `logs/app.log` 文件中。这是查看应用程序详细运行情况的**唯一和推荐**的位置。
+    ```bash
+    # 实时查看日志
+    tail -f logs/app.log
+    ```
+
+> **重要提示**: 项目现在统一使用内部日志框架进行管理，请始终通过 `logs/app.log` 查看日志，而不是将输出重定向到其他文件。
