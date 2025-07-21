@@ -208,7 +208,10 @@ func main() {
 	logModelStrategies()
 
 	// 创建Gin路由
-	router := gin.Default()
+	gin.SetMode(gin.ReleaseMode)  // 设置为release模式，禁用Gin默认日志
+	router := gin.New()
+	// 添加Recovery中间件
+	router.Use(gin.Recovery())
 	// 设置受信任的代理
 	router.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 

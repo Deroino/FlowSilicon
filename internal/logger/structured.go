@@ -276,3 +276,11 @@ func GetRequestLogger(ctx context.Context) *RequestLogger {
 	}
 	return nil
 }
+
+// TruncateContent 截断内容到指定长度
+func TruncateContent(content string, maxLen int) string {
+	if len(content) <= maxLen {
+		return content
+	}
+	return content[:maxLen] + "..."
+}
