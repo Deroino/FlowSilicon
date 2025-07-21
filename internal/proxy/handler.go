@@ -1539,6 +1539,9 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 	rl := GetRequestLogger(c)
 	
 	rl.Info("开始处理流式响应")
+	
+	// 确保状态码设置为200 OK，这对客户端接收流式数据至关重要
+	c.Status(http.StatusOK)
 
 	// 创建缓冲读取器，增加缓冲区大小以处理大型响应
 	reader := bufio.NewReaderSize(responseBody, 65536) // 增加到64KB的缓冲区
@@ -1758,6 +1761,13 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 
 					// 解析事件数据
 					data := bytes.TrimPrefix(line, []byte("data: "))
+					
+					// 验证UTF-8编码有效性，防止乱码
+					if !utf8.Valid(data) {
+						rl.Warn("检测到无效的UTF-8数据在流式事件#%d，跳过此事件", eventCount)
+						readTimeoutChan <- nil
+						return
+					}
 
 					// 检查是否是[DONE]事件
 					if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
@@ -1934,8 +1944,13 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 					}
 				} else {
 					// 处理其他SSE事件(注释等)
-					buffer.Write(line)
-					buffer.WriteString("\n")
+					// 验证UTF-8编码
+					if utf8.Valid(line) {
+						buffer.Write(line)
+						buffer.WriteString("\n")
+					} else {
+						rl.Warn("跳过无效UTF-8编码的SSE注释行")
+					}
 
 					// 定期刷新
 					if (buffer.Len() >= bufferThreshold || time.Since(lastFlushTime) >= maxFlushInterval*2) && !connectionClosed.Load() {

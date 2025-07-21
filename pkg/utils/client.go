@@ -174,7 +174,7 @@ func CreateStandardModelClient(requestTimeout time.Duration) *http.Client {
 // SetStreamResponseHeaders 设置HTTP响应的流式响应头
 // 用于SSE (Server-Sent Events) 流式输出
 func SetStreamResponseHeaders(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Transfer-Encoding", "chunked")
