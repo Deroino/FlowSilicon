@@ -445,7 +445,7 @@ func HandleOpenAIProxy(c *gin.Context) {
 					c.Writer.Header().Set("Cache-Control", "no-cache, no-transform")
 					c.Writer.Header().Set("Connection", "keep-alive")
 					c.Writer.Header().Set("Transfer-Encoding", "chunked")
-					c.Writer.Header().Set("Content-Type", "text/event-stream")
+					c.Writer.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 					c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
 
 					// 使用background上下文并设置更长的超时
@@ -1540,7 +1540,12 @@ func HandleStreamResponse(c *gin.Context, responseBody io.ReadCloser, apiKey str
 	
 	rl.Info("开始处理流式响应")
 	
-	// 确保状态码设置为200 OK，这对客户端接收流式数据至关重要
+	// 必须在任何数据写入前设置所有响应头和状态码
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("X-Content-Type-Options", "nosniff")
 	c.Status(http.StatusOK)
 
 	// 创建缓冲读取器，增加缓冲区大小以处理大型响应
@@ -2186,7 +2191,7 @@ func convertToFakeStream(c *gin.Context, responseBody []byte) {
 	rl := GetRequestLogger(c)
 	
 	// 设置流式响应头
-	c.Header("Content-Type", "text/event-stream")
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
