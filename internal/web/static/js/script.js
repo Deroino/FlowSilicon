@@ -512,9 +512,7 @@ function renderKeysList() {
             e.stopPropagation(); // 阻止事件冒泡
             const key = this.dataset.key;
             
-            if (confirm('确定要删除这个API密钥吗？')) {
-                deleteKey(key);
-            }
+            deleteKey(key);
         });
     });
     

@@ -1204,8 +1204,9 @@ function setCheckbox(id, value) {
  */
 function saveSettings(callback) {
     // 验证设置是否有效
-    if (!validateSettings()) {
-        showToast('设置验证失败，请检查输入', 'error');
+    const validationError = validateSettings();
+    if (validationError) {
+        showToast('设置验证失败: ' + validationError, 'error');
         return;
     }
 
@@ -1462,8 +1463,7 @@ function validateSettings() {
     // 检查服务器端口是否有效
     const port = getValue('server-port');
     if (isNaN(port) || port < 1 || port > 65535) {
-        showToast('服务器端口必须是1-65535之间的有效数字', 'error');
-        return false;
+        return '服务器端口必须是 1-65535 之间的有效数字';
     }
     
     // 检查权重总和是否为1
@@ -1474,11 +1474,10 @@ function validateSettings() {
     
     const totalWeight = balanceWeight + successRateWeight + rpmWeight + tpmWeight;
     if (Math.abs(totalWeight - 1) > 0.01) { // 允许0.01的误差
-        showToast(`权重总和必须等于1，当前总和为${totalWeight.toFixed(2)}`, 'error');
-        return false;
+        return `权重总和必须等于 1，当前总和为 ${totalWeight.toFixed(2)}`;
     }
     
-    return true;
+    return null; // 返回 null 表示验证通过
 }
 
 // 解析状态码字符串为数组
