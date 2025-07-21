@@ -1415,7 +1415,7 @@ func EnsureDefaultConfig(dbPath string) error {
 				"HideIcon":false,
 				"DisabledModels":[]
 			},
-			"Log":{"MaxSizeMB":1, "Level":"warn"},
+			"Log":{"MaxSizeMB":1, "Level":"info"},
 			"RequestSettings":{
 				"HttpClient":{
 					"ResponseHeaderTimeout":60,

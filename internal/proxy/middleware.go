@@ -11,11 +11,35 @@ import (
 	
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"strings"
 )
 
 // RequestLoggingMiddleware 请求日志中间件
 func RequestLoggingMiddleware() gin.HandlerFunc {
+	// 定义一个需要忽略日志的路径列表
+	ignoredPaths := map[string]struct{}{
+		"/logs":           {},
+		"/stats":          {},
+		"/keys":           {},
+		"/keys/mode":      {},
+		"/request-stats":  {},
+		"/models/top":     {},
+		"/auth/check":     {},
+	}
+
 	return func(c *gin.Context) {
+		// 如果当前请求路径在忽略列表中，则直接跳过日志记录
+		if _, exists := ignoredPaths[c.Request.URL.Path]; exists {
+			c.Next()
+			return
+		}
+
+		// 如果请求不是代理到外部API的，也跳过日志记录
+		if !strings.HasPrefix(c.Request.URL.Path, "/api/") && !strings.HasPrefix(c.Request.URL.Path, "/v1/") {
+			c.Next()
+			return
+		}
+
 		// 生成请求ID
 		requestID := uuid.New().String()[:8] // 使用短ID
 		c.Set("request_id", requestID)

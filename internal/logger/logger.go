@@ -44,7 +44,7 @@ var (
 	initialized   bool
 	cronScheduler *cron.Cron
 	maxLogSizeMB  int    = 10     // 默认日志文件最大大小为10MB
-	logLevel      string = "warn" // 默认日志等级为warn
+	logLevel      string = "info" // 默认日志等级为info
 	isGuiMode     bool            // 是否是GUI模式
 )
 
