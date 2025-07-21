@@ -1233,8 +1233,40 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 	// 创建 HTTP 客户端
 	client := utils.CreateClient()
 
+	// --- 增强日志：记录请求详情 ---
+	
+	rl.Info("向外部 API 发送请求 -> URL: %s, Method: %s, Body: %s",
+		targetURL, req.Method, string(transformedBody))
+	// --------------------------
+
 	// 发送请求
 	resp, err := client.Do(req)
+
+	// --- 增强日志：记录响应详情 ---
+	if err != nil {
+		// 网络层错误
+		rl.Error("外部 API 请求网络错误 -> URL: %s, Error: %v", targetURL, err)
+	} else {
+		// 读取响应体以用于日志记录
+		responseBodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			rl.Error("读取外部 API 响应体失败 -> URL: %s, Status: %d, Error: %v", targetURL, resp.StatusCode, readErr)
+		} else {
+			responseHeaders, _ := json.Marshal(resp.Header)
+			// 将响应体重新包装以供后续代码使用
+			resp.Body = io.NopCloser(bytes.NewBuffer(responseBodyBytes))
+
+			// 根据成功或失败记录不同级别的日志
+			if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+				rl.Info("收到外部 API 响应 -> URL: %s, Status: %d, Body: %s",
+					targetURL, resp.StatusCode, string(responseBodyBytes))
+			} else {
+				rl.Warn("收到外部 API 错误响应 -> URL: %s, Status: %d, Headers: %s, Body: %s",
+					targetURL, resp.StatusCode, string(responseHeaders), string(responseBodyBytes))
+			}
+		}
+	}
+	// --------------------------
 
 	if err != nil {
 		// 更新密钥失败记录
@@ -1361,7 +1393,7 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 	}
 
 	// 返回转换后的响应
-	c.Header("Content-Type", "application/json")
+	c.Header("Content-Type", "application/json; charset=utf-8")
 	c.Status(resp.StatusCode)
 	c.Writer.Write(openAIResponse)
 
@@ -2377,8 +2409,40 @@ func forwardUserInfoRequest(c *gin.Context, targetURL string) {
 	// 创建 HTTP 客户端
 	client := utils.CreateClient()
 
+	// --- 增强日志：记录请求详情 ---
+	
+	rl.Info("向外部 API 发送请求 -> URL: %s, Method: %s, Body: %s",
+		targetURL, req.Method, "")
+	// --------------------------
+
 	// 发送请求
 	resp, err := client.Do(req)
+
+	// --- 增强日志：记录响应详情 ---
+	if err != nil {
+		// 网络层错误
+		rl.Error("外部 API 请求网络错误 -> URL: %s, Error: %v", targetURL, err)
+	} else {
+		// 读取响应体以用于日志记录
+		responseBodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			rl.Error("读取外部 API 响应体失败 -> URL: %s, Status: %d, Error: %v", targetURL, resp.StatusCode, readErr)
+		} else {
+			responseHeaders, _ := json.Marshal(resp.Header)
+			// 将响应体重新包装以供后续代码使用
+			resp.Body = io.NopCloser(bytes.NewBuffer(responseBodyBytes))
+
+			// 根据成功或失败记录不同级别的日志
+			if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+				rl.Info("收到外部 API 响应 -> URL: %s, Status: %d, Body: %s",
+					targetURL, resp.StatusCode, string(responseBodyBytes))
+			} else {
+				rl.Warn("收到外部 API 错误响应 -> URL: %s, Status: %d, Headers: %s, Body: %s",
+					targetURL, resp.StatusCode, string(responseHeaders), string(responseBodyBytes))
+			}
+		}
+	}
+	// --------------------------
 	if err != nil {
 		// 更新密钥失败记录
 		key.UpdateApiKeyStatus(apiKey, false)
