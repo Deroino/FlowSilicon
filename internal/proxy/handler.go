@@ -887,7 +887,7 @@ func processOpenAIRequestWithRetry(c *gin.Context, targetURL string, transformed
 		}
 
 		// 返回转换后的响应
-		c.Header("Content-Type", "application/json")
+		c.Header("Content-Type", "application/json; charset=utf-8")
 		c.Status(resp.StatusCode)
 		c.Writer.Write(openAIResponse)
 
