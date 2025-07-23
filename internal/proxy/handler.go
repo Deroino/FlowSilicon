@@ -1232,7 +1232,9 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 	utils.SetCommonHeaders(req, apiKey)
 
 	// 创建 HTTP 客户端
-	client := utils.CreateClient()
+	cfg := config.GetConfig()
+	timeout := time.Duration(cfg.RequestSettings.ProxyHandler.StandardTimeout) * time.Minute
+	client := utils.CreateClientWithTimeout(timeout)
 
 	// --- 增强日志：记录请求详情 ---
 	
@@ -1393,7 +1395,6 @@ func processOpenAIRequest(c *gin.Context, targetURL string, transformedBody []by
 	}
 
 	// 检查是否需要转换为假流式格式
-	cfg := config.GetConfig()
 	if cfg.RequestSettings.ProxyHandler.UseFakeStreaming {
 		// 检查原始请求是否要求流式
 		var originalRequestData map[string]interface{}
@@ -2442,7 +2443,9 @@ func forwardUserInfoRequest(c *gin.Context, targetURL string) {
 	utils.SetCommonHeaders(req, apiKey)
 
 	// 创建 HTTP 客户端
-	client := utils.CreateClient()
+	cfg := config.GetConfig()
+	timeout := time.Duration(cfg.RequestSettings.ProxyHandler.StandardTimeout) * time.Minute
+	client := utils.CreateClientWithTimeout(timeout)
 
 	// --- 增强日志：记录请求详情 ---
 	

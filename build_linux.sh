@@ -79,13 +79,6 @@ if [ -f "go.mod" ]; then
     # 获取当前Go版本
     GO_VERSION=$(go version | awk '{print $3}')
     
-    # 提取纯粹的版本号部分
-    GO_VER_CLEAN=$(echo ${GO_VERSION#go} | cut -d'-' -f1)
-    echo "提取的Go版本号: $GO_VER_CLEAN"
-    
-    echo "更新go.mod使用的Go版本..."
-    go mod edit -go=$GO_VER_CLEAN
-    
     # 执行go mod tidy确保go.mod和go.sum文件同步
     echo "执行go mod tidy..."
     go mod tidy -e

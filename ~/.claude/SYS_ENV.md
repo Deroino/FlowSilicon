@@ -1,0 +1,1 @@
+- Go: 1.23.7, path: /usr/local/go/bin

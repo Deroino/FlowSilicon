@@ -1,6 +1,6 @@
 module flowsilicon
 
-go 1.23.4
+go 1.23
 
 require (
 	github.com/getlantern/systray v1.2.2
