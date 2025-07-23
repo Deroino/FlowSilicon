@@ -12,3 +12,5 @@
 flowsilicon.log
 run/
 flowsilicon
+*.tar.gz
+
