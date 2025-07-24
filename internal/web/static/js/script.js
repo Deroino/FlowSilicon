@@ -40,6 +40,7 @@ let autoUpdateTimer = null;           // API密钥自动更新定时器
 let statsUpdateTimer = null;          // 系统概要自动更新定时器
 let rateUpdateTimer = null;           // 速率监控自动更新定时器
 let keyInfoDebounceTimer = null;      // 密钥信息加载防抖定时器
+let logUpdateTimer = null;            // 日志自动更新定时器
 
 // 保存API密钥到本地存储
 function saveKeyToLocalStorage(key) {
@@ -2130,11 +2131,13 @@ function loadLogs() {
 function showLogViewer() {
     loadLogs();
     document.getElementById('log-viewer').style.display = 'block';
+    startLogAutoRefresh();
 }
 
 // 隐藏日志查看器
 function hideLogViewer() {
     document.getElementById('log-viewer').style.display = 'none';
+    stopLogAutoRefresh();
 }
 
 // 清空日志
@@ -2159,6 +2162,27 @@ function clearLogs() {
             console.error('Error clearing logs:', error);
             showToast('清空日志失败: ' + error.message, 'error');
         });
+    }
+}
+
+// 启动日志自动刷新
+function startLogAutoRefresh() {
+    if (logUpdateTimer) {
+        clearInterval(logUpdateTimer);
+    }
+    
+    logUpdateTimer = setInterval(() => {
+        if (document.getElementById('log-viewer').style.display === 'block') {
+            loadLogs();
+        }
+    }, LOG_REFRESH_INTERVAL * 1000);
+}
+
+// 停止日志自动刷新
+function stopLogAutoRefresh() {
+    if (logUpdateTimer) {
+        clearInterval(logUpdateTimer);
+        logUpdateTimer = null;
     }
 }
 
@@ -2654,6 +2678,11 @@ function startAutoUpdate() {
         autoUpdateTimer = null;
     }
     
+    if (logUpdateTimer) {
+        clearInterval(logUpdateTimer);
+        logUpdateTimer = null;
+    }
+    
     // 清除所有倒计时计时器
     if (rateUpdateCountdownTimer) {
         clearInterval(rateUpdateCountdownTimer);
@@ -3068,6 +3097,9 @@ window.addEventListener('beforeunload', function() {
     }
     if (rateUpdateTimer) {
         clearInterval(rateUpdateTimer);
+    }
+    if (logUpdateTimer) {
+        clearInterval(logUpdateTimer);
     }
 });
 
